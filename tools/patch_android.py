@@ -25,6 +25,16 @@ PERMISSIONS = (
     '    <uses-permission android:name="android.permission.INTERNET" />\n'
     '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n'
     '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n'
+    '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n'
+)
+
+# Android 11+ не показывает службу распознавания речи без этого запроса.
+QUERIES = (
+    '    <queries>\n'
+    '        <intent>\n'
+    '            <action android:name="android.speech.RecognitionService" />\n'
+    '        </intent>\n'
+    '    </queries>\n'
 )
 
 
@@ -38,6 +48,8 @@ def patch_manifest() -> None:
     if missing:
         # Вставляем сразу после открывающего тега <manifest ...>, а не внутрь <application>.
         text = re.sub(r"(<manifest\b[^>]*>\s*\n)", r"\1" + missing, text, count=1)
+    if "android.speech.RecognitionService" not in text:
+        text = text.replace("    <application", QUERIES + "    <application", 1)
     text = re.sub(r'android:label="[^"]*"', 'android:label="StayHunter"', text, count=1)
     MANIFEST.write_text(text, encoding="utf-8")
     print("manifest: интернет, геолокация и имя приложения на месте")

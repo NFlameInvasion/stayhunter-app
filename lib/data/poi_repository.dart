@@ -12,8 +12,8 @@ import 'poi.dart';
 class PoiRepository {
   const PoiRepository();
 
-  Future<List<Poi>> load() async {
-    final raw = await rootBundle.loadString('assets/pois.json');
+  Future<List<Poi>> load(String assetPath) async {
+    final raw = await rootBundle.loadString(assetPath);
     final list = jsonDecode(raw) as List<dynamic>;
     return list
         .map((item) => Poi.fromJson(item as Map<String, dynamic>))

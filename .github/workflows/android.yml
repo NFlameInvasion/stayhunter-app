@@ -58,6 +58,9 @@ jobs:
       - name: Проверка кода
         run: flutter analyze
 
+      - name: Проверки данных
+        run: flutter test
+
       - name: Сборка
         env:
           KEYSTORE_PATH: keystore.jks

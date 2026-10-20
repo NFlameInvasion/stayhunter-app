@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:stayhunter/data/poi.dart';
 import 'package:stayhunter/geo/distance.dart';
+import 'package:stayhunter/search/query_intent.dart';
 
 void main() {
   group('объект из JSON', () {
@@ -55,6 +56,30 @@ void main() {
       expect(walkMinutes(80), '1 мин');
       expect(walkMinutes(81), '2 мин');
       expect(walkMinutes(340), '5 мин');
+    });
+  });
+
+  group('понимание фразы', () {
+    test('«где ближайший банкомат» — это банкомат, а не банк', () {
+      expect(understandQuery('где ближайший банкомат').category, PoiCategory.atm);
+    });
+
+    test('«обмен валюты в банке» — это обмен', () {
+      expect(understandQuery('обмен валюты в банке').category, PoiCategory.exchange);
+    });
+
+    test('«нужен банк» — банк', () {
+      expect(understandQuery('нужен банк').category, PoiCategory.bank);
+    });
+
+    test('«где купить воду» — магазин', () {
+      expect(understandQuery('где купить воду').category, PoiCategory.shop);
+    });
+
+    test('название объекта — поиск по словам, без категории', () {
+      final intent = understandQuery('Ziraat');
+      expect(intent.category, isNull);
+      expect(intent.cleaned, 'ziraat');
     });
   });
 }

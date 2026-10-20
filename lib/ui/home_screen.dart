@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../data/city.dart';
 import '../data/poi.dart';
 import '../data/poi_repository.dart';
 import '../geo/distance.dart';
 import '../geo/route.dart';
 import '../map/basemap.dart';
+import '../search/query_intent.dart';
 import '../theme/app_theme.dart';
 import 'category_bar.dart';
 import 'map_controls.dart';
@@ -29,18 +32,22 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const _cityCenter = LatLng(41.0082, 28.9744);
-  static const _cityName = 'Стамбул · Султанахмет';
-
   final _map = MapController();
   final _search = TextEditingController();
   final _repository = const PoiRepository();
+  final _speech = stt.SpeechToText();
 
+  City _city = cities.first;
   List<Poi> _all = const [];
   bool _loading = true;
   String? _error;
 
+  /// Что применено к списку: категория и слова. Поле ввода живёт отдельно —
+  /// человек набирает текст, а поиск начинается по кнопке.
   PoiCategory? _category;
+  String _phrase = '';
+  String? _intentNote;
+
   Poi? _selected;
 
   /// Где человек: появится после кнопки «Где я».
@@ -55,6 +62,10 @@ class _HomeScreenState extends State<HomeScreen> {
   int? _routeFor;
   bool _routing = false;
 
+  /// Голос: распознавание телефона, без отправки звука наружу.
+  bool _speechReady = false;
+  bool _listening = false;
+
   @override
   void initState() {
     super.initState();
@@ -66,13 +77,18 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _search.dispose();
     _map.dispose();
+    _speech.cancel();
     super.dispose();
   }
 
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final list = await _repository.load();
-      final from = _me ?? _cityCenter;
+      final list = await _repository.load(_city.asset);
+      final from = _me ?? _city.center;
       list.sort((a, b) => metersBetween(from, LatLng(a.lat, a.lon))
           .compareTo(metersBetween(from, LatLng(b.lat, b.lon))));
       if (!mounted) return;
@@ -89,9 +105,51 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Что показываем сейчас: фильтр по категории и поиск по названию и адресу.
+  Future<void> _switchCity(City city) async {
+    if (city.key == _city.key) return;
+    setState(() {
+      _city = city;
+      _all = const [];
+      _selected = null;
+      _route = null;
+      _routeFor = null;
+      _category = null;
+      _phrase = '';
+      _intentNote = null;
+      _search.clear();
+    });
+    _map.move(city.center, city.initialZoom);
+    await _load();
+  }
+
+  Future<void> _pickCity() async {
+    final chosen = await showModalBottomSheet<City>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('Город', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+            for (final city in cities)
+              ListTile(
+                title: Text(city.name),
+                trailing: city.key == _city.key ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, city),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) await _switchCity(chosen);
+  }
+
+  /// Что показываем сейчас: категория из разбора фразы и поиск по словам.
   List<Poi> get _visible {
-    final query = _search.text.trim().toLowerCase();
+    final query = _phrase.trim().toLowerCase();
     return _all.where((poi) {
       if (_category != null && poi.category != _category) return false;
       if (query.isEmpty) return true;
@@ -123,6 +181,84 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Кнопка «Найти»: понять фразу и применить к списку.
+  void _submitSearch() {
+    FocusScope.of(context).unfocus();
+    final text = _search.text.trim();
+    if (text.isEmpty) {
+      setState(() {
+        _phrase = '';
+        _category = null;
+        _intentNote = null;
+      });
+      return;
+    }
+
+    final intent = understandQuery(text);
+    setState(() {
+      if (intent.understood) {
+        _category = intent.category;
+        _phrase = '';
+        _intentNote = 'Понял: ${intent.category!.label}';
+      } else {
+        _category = null;
+        _phrase = intent.cleaned ?? text.toLowerCase();
+        _intentNote = 'Ищу по словам: «$text»';
+      }
+    });
+  }
+
+  void _clearSearch() {
+    _search.clear();
+    setState(() {
+      _phrase = '';
+      _category = null;
+      _intentNote = null;
+    });
+  }
+
+  /// Голос: слушаем телефон, заполняем поле и сразу ищем.
+  Future<void> _toggleVoice() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+
+    if (!_speechReady) {
+      _speechReady = await _speech.initialize(
+        onStatus: (status) {
+          if ((status == 'done' || status == 'notListening') && mounted) {
+            setState(() => _listening = false);
+          }
+        },
+        onError: (_) {
+          if (mounted) setState(() => _listening = false);
+        },
+      );
+    }
+    if (!_speechReady) {
+      _showNote('Распознавание речи недоступно — проверь микрофон');
+      return;
+    }
+
+    setState(() => _listening = true);
+    await _speech.listen(
+      localeId: 'ru_RU',
+      listenFor: const Duration(seconds: 30),
+      pauseFor: const Duration(seconds: 4),
+      onResult: (result) {
+        _search.text = result.recognizedWords;
+        _search.selection = TextSelection.fromPosition(TextPosition(offset: _search.text.length));
+        setState(() {});
+        if (result.finalResult) {
+          setState(() => _listening = false);
+          _submitSearch();
+        }
+      },
+    );
   }
 
   /// Показать, где мы находимся, и подвести камеру.
@@ -192,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final visible = _visible;
-    final from = _me ?? _cityCenter;
+    final from = _me ?? _city.center;
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -201,8 +337,8 @@ class _HomeScreenState extends State<HomeScreen> {
           FlutterMap(
             mapController: _map,
             options: MapOptions(
-              initialCenter: _cityCenter,
-              initialZoom: 14.6,
+              initialCenter: _city.center,
+              initialZoom: _city.initialZoom,
               minZoom: 3,
               maxZoom: 19,
               onPositionChanged: (camera, _) {
@@ -241,9 +377,19 @@ class _HomeScreenState extends State<HomeScreen> {
             top: MediaQuery.paddingOf(context).top + 8,
             child: _pill(
               scheme,
-              const Text(
-                _cityName,
-                style: TextStyle(fontSize: 12, color: Color(0xFF475467)),
+              InkWell(
+                onTap: _pickCity,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _city.name,
+                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.expand_more, size: 16, color: scheme.onSurfaceVariant),
+                  ],
+                ),
               ),
             ),
           ),
@@ -295,7 +441,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _pill(ColorScheme scheme, Widget child) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: scheme.surface.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(999),
@@ -373,13 +519,29 @@ class _HomeScreenState extends State<HomeScreen> {
               TextField(
                 controller: _search,
                 textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _submitSearch(),
                 decoration: InputDecoration(
                   hintText: 'Что найти? Банк, обмен, аптека…',
                   prefixIcon: const Icon(Icons.search, size: 20),
-                  suffixIcon: IconButton(
-                    tooltip: 'Сказать голосом',
-                    icon: const Icon(Icons.mic_none, size: 20),
-                    onPressed: () => _showNote('Голос появится в следующем шаге'),
+                  suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: _listening ? 'Остановить' : 'Сказать голосом',
+                        icon: Icon(
+                          _listening ? Icons.mic : Icons.mic_none,
+                          size: 20,
+                          color: _listening ? const Color(0xFFB42318) : null,
+                        ),
+                        onPressed: _toggleVoice,
+                      ),
+                      IconButton(
+                        tooltip: 'Найти',
+                        icon: const Icon(Icons.arrow_forward, size: 20),
+                        onPressed: _submitSearch,
+                      ),
+                    ],
                   ),
                   filled: true,
                   fillColor: scheme.surfaceContainerHighest,
@@ -393,7 +555,10 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 8),
               CategoryBar(
                 selected: _category,
-                onChanged: (value) => setState(() => _category = value),
+                onChanged: (value) => setState(() {
+                  _category = value;
+                  _intentNote = null;
+                }),
               ),
               const SizedBox(height: 8),
               if (_selected != null)
@@ -405,8 +570,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   routing: _routing,
                   route: _routeFor == _selected!.id ? _route : null,
                 )
-              else
+              else ...[
+                if (_intentNote != null) _intentRow(scheme),
                 _results(visible, from),
+              ],
               const SizedBox(height: 6),
               Text(
                 'Данные © OpenStreetMap · карта © CARTO',
@@ -416,6 +583,28 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _intentRow(ColorScheme scheme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _intentNote!,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Сбросить поиск',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 16),
+            onPressed: _clearSearch,
+          ),
+        ],
       ),
     );
   }
@@ -441,7 +630,7 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          visible.isEmpty ? 'Ничего не найдено' : 'Рядом: ${visible.length}',
+          visible.isEmpty ? 'Ничего не найдено' : 'Найдено: ${visible.length}',
           style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
         ),
         const SizedBox(height: 4),
