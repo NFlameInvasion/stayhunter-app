@@ -6,6 +6,7 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../audio/device_sound.dart';
@@ -348,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _onVoiceResult(stt.SpeechRecognitionResult result) {
+  void _onVoiceResult(SpeechRecognitionResult result) {
     final text = result.recognizedWords.trim();
     if (text.isEmpty) return;
     if (result.finalResult) {
