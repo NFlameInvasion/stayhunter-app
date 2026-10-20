@@ -45,11 +45,12 @@ jobs:
 
       - name: Разрешения и подпись
         env:
-          KEYSTORE_PATH: ${{ secrets.KEYSTORE_BASE64 != '' && 'keystore.jks' || '' }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: python3 tools/patch_android.py
+        run: |
+          if [ -f android/app/keystore.jks ]; then export KEYSTORE_PATH=keystore.jks; fi
+          python3 tools/patch_android.py
 
       - name: Зависимости
         run: flutter pub get
@@ -58,6 +59,11 @@ jobs:
         run: flutter analyze
 
       - name: Сборка
+        env:
+          KEYSTORE_PATH: keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: flutter build apk --release
 
       - name: Выложить в релиз
