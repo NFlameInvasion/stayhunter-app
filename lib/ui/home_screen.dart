@@ -420,7 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
     final paint = Paint()..color = const Color(0xFF1D4ED8);
-    final path = Path()
+    final path = ui.Path()
       ..moveTo(32, 2)
       ..lineTo(58, 58)
       ..lineTo(32, 44)
@@ -838,10 +838,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 controller: _search,
                 minLines: 1,
                 maxLines: 6,
-                isDense: true,
                 keyboardType: TextInputType.multiline,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
+                  isDense: true,
                   hintText: 'Что найти? Банк, обмен, аптека…',
                   prefixIcon: const Padding(
                     padding: EdgeInsets.only(left: 6),
@@ -853,6 +853,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (_search.text.isNotEmpty)
+                          IconButton(
+                            tooltip: 'Очистить поле',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(width: 30, height: 34),
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: _clearSearch,
+                          ),
                         IconButton(
                           tooltip: _listening ? 'Остановить' : 'Сказать голосом',
                           visualDensity: VisualDensity.compact,
