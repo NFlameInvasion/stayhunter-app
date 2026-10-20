@@ -27,13 +27,13 @@ SearchIntent understandQuery(String text) {
 
   bool has(String pattern) => RegExp(pattern).hasMatch(t);
 
-  if (has(r'банкомат|банкомат[а-я]*|\bатм\b|снять наличн|наличн')) {
+  if (has(r'банкомат|снять наличн|наличн|(^|[^а-я])атм([^а-я]|$)')) {
     return const SearchIntent(category: PoiCategory.atm);
   }
   if (has(r'обмен|обменник|валют|менял|менять деньг|курс')) {
     return const SearchIntent(category: PoiCategory.exchange);
   }
-  if (has(r'\bбанк')) {
+  if (has(r'банк')) {
     return const SearchIntent(category: PoiCategory.bank);
   }
   if (has(r'аптек|лекарств|таблет|медикам|зеленый крест')) {
