@@ -1,0 +1,22 @@
+# Зависимости и сборка
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Каркас платформ создаётся в CI командой flutter create
+android/
+ios/
+linux/
+macos/
+windows/
+web/
+
+# Ключи подписи — только локально и в секретах GitHub
+keys/
+*.jks
+*.keystore
+
+*.iml
+.idea/
