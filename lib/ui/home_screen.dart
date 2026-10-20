@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
@@ -16,14 +17,15 @@ import '../data/poi_repository.dart';
 import '../geo/bearing.dart';
 import '../geo/distance.dart';
 import '../geo/route.dart';
-import '../map/basemap.dart';
+import '../map/vector_style.dart';
 import '../search/query_intent.dart';
 import '../theme/app_theme.dart';
 import 'category_bar.dart';
 import 'map_controls.dart';
 import 'poi_card.dart';
 
-/// Главный экран: карта на весь экран и панель снизу — поиск, категории, объекты.
+/// Главный экран: векторная карта на весь экран и панель снизу — поиск,
+/// категории, ответ и объекты.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
@@ -39,48 +41,44 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _map = MapController();
   final _search = TextEditingController();
   final _repository = const PoiRepository();
   final _speech = stt.SpeechToText();
+
+  ml.MapLibreMapController? _map;
+  StreamSubscription<ml.Circle>? _circleTap;
 
   City _city = cities.first;
   List<Poi> _all = const [];
   bool _loading = true;
   String? _error;
 
-  /// Что применено к списку: категория и слова. Поле ввода живёт отдельно —
-  /// человек набирает текст, а поиск начинается по кнопке.
   PoiCategory? _category;
   String _phrase = '';
   String? _intentNote;
 
   Poi? _selected;
 
-  /// Где человек: появится после кнопки «Где я».
   LatLng? _me;
   bool _locating = false;
 
-  /// Поворот карты: нужен компасу, чтобы показывать, где север.
   double _rotation = 0;
+  double _zoom = 14;
 
-  /// Куда смотрит телефон (0 — север). null — компас недоступен или ещё не пришёл.
-  double? _heading;
-  StreamSubscription<CompassEvent>? _compass;
-
-  /// Построенный пеший маршрут и объект, к которому он ведёт.
   RoutePlan? _route;
   int? _routeFor;
   bool _routing = false;
   String? _routeError;
 
-  /// Ответ на фразу словами: сколько нашлось и три ближайших. Карта показывает
-  /// точки, но человеку нужен ещё и ответ — иначе непонятно, что произошло.
   List<Poi> _answerTop = const [];
   int _answerCount = 0;
   bool _answerCollapsed = false;
+  bool _panelCollapsed = false;
 
-  /// Голос: распознавание телефона, без отправки звука наружу.
+  double? _heading;
+  StreamSubscription<CompassEvent>? _compass;
+  double? _drawnHeading;
+
   bool _speechReady = false;
   bool _listening = false;
   String _voiceConfirmed = '';
@@ -88,15 +86,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _voiceLimit;
   Timer? _voiceRestart;
   DateTime? _voiceStarted;
-
-  /// Предел одной голосовой фразы — две минуты, как в Aido.
   static const _voiceMax = Duration(minutes: 2);
 
-  /// Текущий зум: по нему решаем, подписывать ли объекты на карте.
-  double _zoom = 14;
+  /// Круги на карте: их номера нужны, чтобы понять, по какому объекту тапнули.
+  final Map<int, Poi> _circlePois = {};
 
-  /// Панель можно свернуть до одной строки поиска, чтобы видеть больше карты.
-  bool _panelCollapsed = false;
+  ml.Symbol? _meArrow;
+  bool _arrowImageReady = false;
 
   @override
   void initState() {
@@ -107,7 +103,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _compass = FlutterCompass.events?.listen(
         (event) {
           final heading = event.heading;
-          if (heading != null && mounted) setState(() => _heading = heading);
+          if (heading == null || !mounted) return;
+          setState(() => _heading = heading);
+          _updateArrow(heading);
         },
         onError: (_) {},
       );
@@ -117,16 +115,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isDark != widget.isDark) {
+      // Стиль меняется целиком: аннотации после этого рисуются заново.
+      _arrowImageReady = false;
+      _map?.setStyle(buildVectorStyle(dark: widget.isDark));
+    }
+  }
+
+  @override
   void dispose() {
     _compass?.cancel();
+    _circleTap?.cancel();
     _voiceLimit?.cancel();
     _voiceRestart?.cancel();
     unmuteDeviceSound();
     _search.dispose();
-    _map.dispose();
     _speech.cancel();
     super.dispose();
   }
+
+  // ------------------------------------------------------------------ данные
 
   Future<void> _load() async {
     setState(() {
@@ -143,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _all = list;
         _loading = false;
       });
+      await _redraw();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -163,9 +174,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _category = null;
       _phrase = '';
       _intentNote = null;
+      _answerTop = const [];
+      _answerCount = 0;
       _search.clear();
     });
-    _map.move(city.center, city.initialZoom);
+    _moveCamera(city.center.latitude, city.center.longitude, city.initialZoom);
     await _load();
   }
 
@@ -194,7 +207,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (chosen != null) await _switchCity(chosen);
   }
 
-  /// Что показываем сейчас: категория из разбора фразы и поиск по словам.
   List<Poi> get _visible {
     final query = _phrase.trim().toLowerCase();
     return _all.where((poi) {
@@ -206,6 +218,231 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList(growable: false);
   }
 
+  // ------------------------------------------------------------------- карта
+
+  void _onMapCreated(ml.MapLibreMapController controller) {
+    _map = controller;
+    _circleTap = controller.onCircleTapped.listen((circle) {
+      final poi = _circlePois[circle.id];
+      if (poi != null) _select(poi);
+    });
+    _redraw();
+  }
+
+  Future<void> _onStyleLoaded() async {
+    _arrowImageReady = false;
+    await _redraw();
+  }
+
+  void _onCameraIdle() {
+    final camera = _map?.cameraPosition;
+    if (camera == null) return;
+    final bearing = camera.bearing;
+    final zoom = camera.zoom;
+    if ((bearing - _rotation).abs() > 0.5 || (zoom - _zoom).abs() > 0.2) {
+      setState(() {
+        _rotation = bearing;
+        _zoom = zoom;
+      });
+    }
+  }
+
+  void _moveCamera(double lat, double lon, double zoom) {
+    _map?.animateCamera(
+      ml.CameraUpdate.newLatLngZoom(ml.LatLng(lat, lon), zoom),
+    );
+  }
+
+  void _fitPoints(List<LatLng> points) {
+    if (points.isEmpty) return;
+    var south = points.first.latitude;
+    var north = points.first.latitude;
+    var west = points.first.longitude;
+    var east = points.first.longitude;
+    for (final point in points) {
+      south = math.min(south, point.latitude);
+      north = math.max(north, point.latitude);
+      west = math.min(west, point.longitude);
+      east = math.max(east, point.longitude);
+    }
+    if (points.length == 1) {
+      _moveCamera(points.first.latitude, points.first.longitude, 16);
+      return;
+    }
+    _map?.animateCamera(
+      ml.CameraUpdate.newLatLngBounds(
+        ml.LatLngBounds(
+          southwest: ml.LatLng(south, west),
+          northeast: ml.LatLng(north, east),
+        ),
+        left: 50,
+        top: 120,
+        right: 50,
+        bottom: 340,
+      ),
+    );
+  }
+
+  Future<void> _redraw() async {
+    final controller = _map;
+    if (controller == null) return;
+
+    await controller.clearCircles();
+    await controller.clearSymbols();
+    await controller.clearLines();
+    _circlePois.clear();
+    _meArrow = null;
+
+    if (!_arrowImageReady) {
+      try {
+        await controller.addImage('me-arrow', await _arrowPng());
+        _arrowImageReady = true;
+      } catch (_) {
+        // Без картинки останется просто точка — не беда.
+      }
+    }
+
+    final visible = _visible;
+    for (final poi in visible.take(400)) {
+      final isSelected = _selected?.id == poi.id;
+      try {
+        final circle = await controller.addCircle(
+          ml.CircleOptions(
+            geometry: ml.LatLng(poi.lat, poi.lon),
+            circleRadius: isSelected ? 9 : 6,
+            circleColor: _hex(poi.category.color),
+            circleStrokeColor: '#ffffff',
+            circleStrokeWidth: 2,
+          ),
+        );
+        _circlePois[circle.id] = poi;
+      } catch (_) {
+        break;
+      }
+    }
+
+    for (final poi in _labelled(visible)) {
+      try {
+        await controller.addSymbol(
+          ml.SymbolOptions(
+            geometry: ml.LatLng(poi.lat, poi.lon),
+            textField: poi.name,
+            textSize: 11,
+            textColor: widget.isDark ? '#e6edf7' : '#101828',
+            textHaloColor: widget.isDark ? '#0b0f14' : '#ffffff',
+            textHaloWidth: 1.2,
+            textOffset: const [0, 1.3],
+            textAnchor: 'top',
+            textAllowOverlap: true,
+          ),
+        );
+      } catch (_) {
+        break;
+      }
+    }
+
+    if (_route != null) {
+      try {
+        await controller.addLine(
+          ml.LineOptions(
+            geometry: _route!.points
+                .map((p) => ml.LatLng(p.latitude, p.longitude))
+                .toList(growable: false),
+            lineColor: '#0f7b6c',
+            lineWidth: 5,
+          ),
+        );
+      } catch (_) {
+        // Маршрут нарисуется при следующей перерисовке.
+      }
+    }
+
+    final me = _me;
+    if (me != null) {
+      await controller.addCircle(
+        ml.CircleOptions(
+          geometry: ml.LatLng(me.latitude, me.longitude),
+          circleRadius: 7,
+          circleColor: '#1d4ed8',
+          circleStrokeColor: '#ffffff',
+          circleStrokeWidth: 3,
+        ),
+      );
+      try {
+        _meArrow = await controller.addSymbol(
+          ml.SymbolOptions(
+            geometry: ml.LatLng(me.latitude, me.longitude),
+            iconImage: 'me-arrow',
+            iconSize: 0.5,
+            iconRotate: (_heading ?? 0) - _rotation,
+            iconAllowOverlap: true,
+            iconIgnorePlacement: true,
+          ),
+        );
+        _drawnHeading = _heading;
+      } catch (_) {
+        // Стрелка появится, когда картинка зарегистрируется.
+      }
+    }
+  }
+
+  /// Кого подписываем: выбранный, три из ответа и ближайшие на крупном зуме.
+  List<Poi> _labelled(List<Poi> visible) {
+    final labelled = <Poi>[];
+    void add(Poi poi) {
+      if (!labelled.any((x) => x.id == poi.id)) labelled.add(poi);
+    }
+
+    final selected = _selected;
+    if (selected != null) add(selected);
+    for (final poi in _answerTop) {
+      add(poi);
+    }
+    if (_zoom >= 16) {
+      for (final poi in visible.take(8)) {
+        add(poi);
+      }
+    }
+    return labelled;
+  }
+
+  void _updateArrow(double heading) {
+    final arrow = _meArrow;
+    final drawn = _drawnHeading;
+    if (arrow == null || drawn == null) return;
+    if ((heading - drawn).abs() < 4) return;
+    _drawnHeading = heading;
+    _map?.updateSymbol(
+      arrow,
+      ml.SymbolOptions(iconRotate: heading - _rotation),
+    );
+  }
+
+  /// Синяя стрелка в PNG: MapLibre рисует иконки, а не виджеты.
+  Future<Uint8List> _arrowPng() async {
+    const size = 64.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
+    final paint = Paint()..color = const Color(0xFF1D4ED8);
+    final path = Path()
+      ..moveTo(32, 2)
+      ..lineTo(58, 58)
+      ..lineTo(32, 44)
+      ..lineTo(6, 58)
+      ..close();
+    canvas.drawPath(path, paint);
+    final image = await recorder.endRecording().toImage(64, 64);
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    return data!.buffer.asUint8List();
+  }
+
+  String _hex(Color color) {
+    final value = color.toARGB32() & 0xFFFFFF;
+    return '#${value.toRadixString(16).padLeft(6, '0')}';
+  }
+
+  // ------------------------------------------------------------------ поиск
+
   void _select(Poi poi) {
     setState(() {
       _selected = poi;
@@ -214,7 +451,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _routeError = null;
       _panelCollapsed = false;
     });
-    _map.move(LatLng(poi.lat, poi.lon), 16.4);
+    _moveCamera(poi.lat, poi.lon, 16.4);
+    _redraw();
   }
 
   void _closeCard() {
@@ -224,6 +462,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _routeFor = null;
       _routeError = null;
     });
+    _redraw();
   }
 
   void _showNote(String text) {
@@ -233,7 +472,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
-  /// Кнопка «Найти»: понять фразу и применить к списку.
   void _submitSearch() {
     FocusScope.of(context).unfocus();
     final text = _search.text.trim();
@@ -242,7 +480,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _phrase = '';
         _category = null;
         _intentNote = null;
+        _answerTop = const [];
+        _answerCount = 0;
       });
+      _redraw();
       return;
     }
 
@@ -262,9 +503,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _showAnswer(_visible);
   }
 
-  /// Показать ответ: три ближайших и камеру на них.
   void _showAnswer(List<Poi> found) {
-    final from = _me ?? _map.camera.center;
+    final from = _me ?? _city.center;
     final sorted = [...found]..sort((a, b) => metersBetween(from, LatLng(a.lat, a.lon))
         .compareTo(metersBetween(from, LatLng(b.lat, b.lon))));
     final top = sorted.take(3).toList(growable: false);
@@ -275,17 +515,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _answerCollapsed = false;
     });
 
-    if (top.isEmpty) return;
-    if (top.length == 1) {
-      _map.move(LatLng(top.first.lat, top.first.lon), 16);
-      return;
+    if (top.isNotEmpty) {
+      _fitPoints(top.map((p) => LatLng(p.lat, p.lon)).toList());
     }
-    _map.fitCamera(
-      CameraFit.bounds(
-        bounds: LatLngBounds.fromPoints(top.map((p) => LatLng(p.lat, p.lon)).toList()),
-        padding: const EdgeInsets.fromLTRB(60, 120, 60, 380),
-      ),
-    );
+    _redraw();
   }
 
   void _clearSearch() {
@@ -297,12 +530,13 @@ class _HomeScreenState extends State<HomeScreen> {
       _answerTop = const [];
       _answerCount = 0;
     });
+    _redraw();
   }
 
-  /// Голос: слушаем телефон, заполняем поле и сразу ищем.
+  // ------------------------------------------------------------------ голос
+
   Future<void> _toggleVoice() async {
     if (_listening) {
-      // Второе нажатие — конец фразы. Паузы её не заканчивают.
       await _stopVoice(submit: true);
       return;
     }
@@ -310,8 +544,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_speechReady) {
       _speechReady = await _speech.initialize(
         onStatus: (status) {
-          // Телефон сам заканчивает сеанс на паузе. Пока человек не нажал «стоп»
-          // и не вышло две минуты — начинаем слушать снова и копим сказанное.
           if (_listening && (status == 'done' || status == 'notListening')) {
             _scheduleVoiceRestart();
           }
@@ -330,14 +562,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _voiceDraft = '';
     _voiceStarted = DateTime.now();
     setState(() => _listening = true);
-    // Системный писк распознавателя глушим на время записи.
     await muteDeviceSound();
     _voiceLimit?.cancel();
     _voiceLimit = Timer(_voiceMax, () => _stopVoice(submit: true));
     await _startListening();
   }
 
-  /// Один сеанс слушания. Телефон может окончить его сам — тогда начнём новый.
   Future<void> _startListening() async {
     try {
       await _speech.listen(
@@ -369,7 +599,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {});
   }
 
-  /// Сложить куски так, чтобы одно и то же не повторялось.
   String _joinVoice(String confirmed, String draft) {
     final first = confirmed.trim();
     final second = draft.trim();
@@ -380,7 +609,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$first $second';
   }
 
-  /// Продолжить слушать, если человек ещё не закончил и время не вышло.
   void _scheduleVoiceRestart() {
     if (!_listening) return;
     final started = _voiceStarted;
@@ -411,7 +639,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (submit) _submitSearch();
   }
 
-  /// Показать, где мы находимся, и подвести камеру.
+  // ------------------------------------------------------------- место и путь
+
   Future<void> _locate() async {
     setState(() => _locating = true);
     try {
@@ -438,7 +667,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       final me = LatLng(position.latitude, position.longitude);
       setState(() => _me = me);
-      _map.move(me, 16.2);
+      _moveCamera(me.latitude, me.longitude, 16.2);
+      await _redraw();
     } catch (_) {
       _showNote('Не удалось определить место — попробуй на улице');
     } finally {
@@ -446,7 +676,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Пеший маршрут до объекта — по улицам, на нашей карте, без Google.
   Future<void> _buildRoute(Poi poi) async {
     if (_routing) return;
     setState(() {
@@ -457,7 +686,7 @@ class _HomeScreenState extends State<HomeScreen> {
     RoutePlan? plan;
     try {
       plan = await planWalkingRoute(
-        from: _me ?? _map.camera.center,
+        from: _me ?? _city.center,
         to: LatLng(poi.lat, poi.lon),
       );
     } finally {
@@ -476,13 +705,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (plan == null || !mounted) return;
-    _map.fitCamera(
-      CameraFit.bounds(
-        bounds: LatLngBounds.fromPoints(plan.points),
-        padding: const EdgeInsets.fromLTRB(50, 110, 50, 340),
-      ),
-    );
+    _fitPoints(plan.points);
+    await _redraw();
   }
+
+  // ------------------------------------------------------------------- вид
 
   @override
   Widget build(BuildContext context) {
@@ -493,50 +720,19 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: _map,
-            options: MapOptions(
-              initialCenter: _city.center,
-              initialZoom: _city.initialZoom,
-              minZoom: 3,
-              maxZoom: 19,
-              onPositionChanged: (camera, _) {
-                var changed = false;
-                if ((camera.rotation - _rotation).abs() > 0.3) {
-                  _rotation = camera.rotation;
-                  changed = true;
-                }
-                if ((camera.zoom - _zoom).abs() > 0.2) {
-                  _zoom = camera.zoom;
-                  changed = true;
-                }
-                if (changed) setState(() {});
-              },
-              onTap: (_, __) => _closeCard(),
+          ml.MapLibreMap(
+            styleString: buildVectorStyle(dark: widget.isDark),
+            initialCameraPosition: ml.CameraPosition(
+              target: ml.LatLng(_city.center.latitude, _city.center.longitude),
+              zoom: _city.initialZoom,
             ),
-            children: [
-              TileLayer(
-                urlTemplate: Basemap.of(widget.isDark).url,
-                tileSize: 512,
-                zoomOffset: -1,
-                userAgentPackageName: 'ru.nflame.stayhunter',
-                tileBuilder: (context, tile, _) => ColorFiltered(
-                  colorFilter: Basemap.of(widget.isDark).grade,
-                  child: tile,
-                ),
-              ),
-              if (_route != null)
-                PolylineLayer(
-                  polylines: [
-                    Polyline(
-                      points: _route!.points,
-                      strokeWidth: 5,
-                      color: accent,
-                    ),
-                  ],
-                ),
-              MarkerLayer(markers: _markers(visible, from)),
-            ],
+            onMapCreated: _onMapCreated,
+            onStyleLoadedCallback: _onStyleLoaded,
+            onCameraIdle: _onCameraIdle,
+            trackCameraPosition: true,
+            rotateGesturesEnabled: true,
+            tiltGesturesEnabled: false,
+            onMapClick: (_, __) => _closeCard(),
           ),
           Positioned(
             left: 12,
@@ -590,8 +786,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: MapControls(
               rotation: _rotation,
               onNorth: () {
-                // Всегда возвращаем север вверх, даже если карту крутили дважды.
-                _map.rotate(0);
+                _map?.animateCamera(ml.CameraUpdate.bearingTo(0));
                 setState(() => _rotation = 0);
               },
               onLocate: _locate,
@@ -621,104 +816,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  List<Marker> _markers(List<Poi> visible, LatLng from) {
-    const limit = 400;
-    final markers = visible.take(limit).map((poi) {
-      final isSelected = _selected?.id == poi.id;
-      final inTop = _answerTop.any((top) => top.id == poi.id);
-      final color = poi.category.color;
-      return Marker(
-        point: LatLng(poi.lat, poi.lon),
-        width: isSelected ? 44 : (inTop ? 40 : 34),
-        height: isSelected ? 44 : (inTop ? 40 : 34),
-        child: GestureDetector(
-          onTap: () => _select(poi),
-          child: Container(
-            decoration: BoxDecoration(
-              color: isSelected ? color : Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isSelected || inTop ? color : const Color(0xFFE4E7EC),
-                width: isSelected ? 3 : (inTop ? 3 : 2),
-              ),
-              boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8)],
-            ),
-            child: Icon(
-              poi.category.icon,
-              size: isSelected ? 22 : (inTop ? 19 : 17),
-              color: isSelected ? Colors.white : color,
-            ),
-          ),
-        ),
-      );
-    }).toList();
-
-    final me = _me;
-    if (me != null) {
-      markers.add(
-        Marker(
-          point: me,
-          width: 54,
-          height: 54,
-          child: _MeMarker(heading: _heading, mapRotation: _rotation),
-        ),
-      );
-    }
-
-    // Подписи: выбранный объект, три из ответа и — на близком зуме — ближайшие.
-    final scheme = Theme.of(context).colorScheme;
-    final labelled = <Poi>[];
-    void addLabel(Poi poi) {
-      if (!labelled.any((x) => x.id == poi.id)) labelled.add(poi);
-    }
-
-    final selected = _selected;
-    if (selected != null) addLabel(selected);
-    for (final poi in _answerTop) {
-      addLabel(poi);
-    }
-    if (_zoom >= 16) {
-      for (final poi in visible.take(8)) {
-        addLabel(poi);
-      }
-    }
-
-    for (final poi in labelled) {
-      markers.add(
-        Marker(
-          point: LatLng(poi.lat, poi.lon),
-          width: 190,
-          height: 30,
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 18),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: GestureDetector(
-                onTap: () => _select(poi),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: scheme.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 6)],
-                  ),
-                  child: Text(
-                    poi.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    return markers;
-  }
-
   Widget _panel(List<Poi> visible, LatLng from) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
@@ -738,7 +835,6 @@ class _HomeScreenState extends State<HomeScreen> {
               _panelHandle(scheme),
               TextField(
                 controller: _search,
-                // Поле растёт под длинную фразу: до четырёх строк, дальше прокрутка.
                 minLines: 1,
                 maxLines: 4,
                 keyboardType: TextInputType.multiline,
@@ -791,12 +887,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 8),
                 CategoryBar(
                   selected: _category,
-                  onChanged: (value) => setState(() {
-                    _category = value;
-                    _intentNote = null;
-                    _answerTop = const [];
-                    _answerCount = 0;
-                  }),
+                  onChanged: (value) {
+                    setState(() {
+                      _category = value;
+                      _intentNote = null;
+                      _answerTop = const [];
+                      _answerCount = 0;
+                    });
+                    _redraw();
+                  },
                 ),
                 const SizedBox(height: 8),
                 if (_selected != null)
@@ -820,7 +919,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
                 const SizedBox(height: 6),
                 Text(
-                  'Данные © OpenStreetMap · карта © CARTO',
+                  'Данные © OpenStreetMap · карта © OpenFreeMap',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
                 ),
@@ -832,7 +931,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Ручка панели: свернуть до строки поиска или развернуть обратно.
   Widget _panelHandle(ColorScheme scheme) {
     return InkWell(
       onTap: () => setState(() => _panelCollapsed = !_panelCollapsed),
@@ -862,7 +960,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Ответ на запрос: сколько нашлось и три ближайших, с переходом к каждому.
   Widget _answerCard(ColorScheme scheme, LatLng from) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -986,8 +1083,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 4),
         SizedBox(
-          // Когда сверху уже показан ответ с тремя ближайшими, списку хватает
-          // половины места: карта должна оставаться видимой.
           height: _answerTop.isNotEmpty ? 118 : 168,
           child: ListView.builder(
             itemCount: visible.length,
@@ -1022,46 +1117,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => _select(poi),
               );
             },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Точка «я» со стрелкой направления: поворачивается вместе с телефоном,
-/// а не с картой — поэтому из угла вычитается поворот карты.
-class _MeMarker extends StatelessWidget {
-  const _MeMarker({required this.heading, required this.mapRotation});
-
-  final double? heading;
-  final double mapRotation;
-
-  @override
-  Widget build(BuildContext context) {
-    const blue = Color(0xFF1D4ED8);
-    final h = heading;
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        if (h != null)
-          Transform.rotate(
-            angle: (h - mapRotation) * math.pi / 180,
-            child: const SizedBox.expand(
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Icon(Icons.navigation, size: 22, color: blue),
-              ),
-            ),
-          ),
-        Container(
-          width: 22,
-          height: 22,
-          decoration: BoxDecoration(
-            color: blue,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
-            boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 10)],
           ),
         ),
       ],
