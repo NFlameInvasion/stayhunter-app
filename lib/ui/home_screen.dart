@@ -246,9 +246,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _listening = true);
     await _speech.listen(
-      localeId: 'ru_RU',
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 4),
+      listenOptions: stt.SpeechListenOptions(
+        localeId: 'ru_RU',
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 4),
+      ),
       onResult: (result) {
         _search.text = result.recognizedWords;
         _search.selection = TextSelection.fromPosition(TextPosition(offset: _search.text.length));

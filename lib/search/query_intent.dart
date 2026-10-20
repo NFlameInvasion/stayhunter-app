@@ -25,7 +25,7 @@ SearchIntent understandQuery(String text) {
   final t = text.toLowerCase().replaceAll('ё', 'е').trim();
   if (t.isEmpty) return const SearchIntent();
 
-  bool has(Pattern p) => RegExp(p).hasMatch(t);
+  bool has(String pattern) => RegExp(pattern).hasMatch(t);
 
   if (has(r'банкомат|банкомат[а-я]*|\bатм\b|снять наличн|наличн')) {
     return const SearchIntent(category: PoiCategory.atm);
