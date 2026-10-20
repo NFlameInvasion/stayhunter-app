@@ -16,6 +16,7 @@ class PoiCard extends StatelessWidget {
     required this.onRoute,
     required this.routing,
     this.route,
+    this.error,
   });
 
   final Poi poi;
@@ -28,6 +29,9 @@ class PoiCard extends StatelessWidget {
 
   /// Построенный пеший маршрут; пока его нет, показываем расстояние по прямой.
   final RoutePlan? route;
+
+  /// Почему маршрут не построился: словами, в карточке, а не всплывашкой.
+  final String? error;
 
   Future<void> _openSite() async {
     final uri = poi.website.isNotEmpty
@@ -104,6 +108,13 @@ class PoiCard extends StatelessWidget {
                 : '${formatDistance(meters)} по прямой · ${walkMinutes(meters)} пешком',
             style: TextStyle(fontSize: 13, color: scheme.onSurface),
           ),
+          if (error != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              error!,
+              style: const TextStyle(fontSize: 12, color: Color(0xFFB42318)),
+            ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [

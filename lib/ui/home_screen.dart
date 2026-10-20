@@ -61,6 +61,13 @@ class _HomeScreenState extends State<HomeScreen> {
   RoutePlan? _route;
   int? _routeFor;
   bool _routing = false;
+  String? _routeError;
+
+  /// Ответ на фразу словами: сколько нашлось и три ближайших. Карта показывает
+  /// точки, но человеку нужен ещё и ответ — иначе непонятно, что произошло.
+  List<Poi> _answerTop = const [];
+  int _answerCount = 0;
+  bool _answerCollapsed = false;
 
   /// Голос: распознавание телефона, без отправки звука наружу.
   bool _speechReady = false;
@@ -164,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _selected = poi;
       _route = null;
       _routeFor = null;
+      _routeError = null;
     });
     _map.move(LatLng(poi.lat, poi.lon), 16.4);
   }
@@ -173,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _selected = null;
       _route = null;
       _routeFor = null;
+      _routeError = null;
     });
   }
 
@@ -208,6 +217,33 @@ class _HomeScreenState extends State<HomeScreen> {
         _intentNote = 'Ищу по словам: «$text»';
       }
     });
+    _showAnswer(_visible);
+  }
+
+  /// Показать ответ: три ближайших и камеру на них.
+  void _showAnswer(List<Poi> found) {
+    final from = _me ?? _map.camera.center;
+    final sorted = [...found]..sort((a, b) => metersBetween(from, LatLng(a.lat, a.lon))
+        .compareTo(metersBetween(from, LatLng(b.lat, b.lon))));
+    final top = sorted.take(3).toList(growable: false);
+
+    setState(() {
+      _answerCount = found.length;
+      _answerTop = top;
+      _answerCollapsed = false;
+    });
+
+    if (top.isEmpty) return;
+    if (top.length == 1) {
+      _map.move(LatLng(top.first.lat, top.first.lon), 16);
+      return;
+    }
+    _map.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(top.map((p) => LatLng(p.lat, p.lon)).toList()),
+        padding: const EdgeInsets.fromLTRB(60, 120, 60, 380),
+      ),
+    );
   }
 
   void _clearSearch() {
@@ -216,6 +252,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _phrase = '';
       _category = null;
       _intentNote = null;
+      _answerTop = const [];
+      _answerCount = 0;
     });
   }
 
@@ -301,24 +339,33 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Пеший маршрут до объекта — по улицам, на нашей карте, без Google.
   Future<void> _buildRoute(Poi poi) async {
     if (_routing) return;
-    setState(() => _routing = true);
-    final plan = await planWalkingRoute(
-      from: _me ?? _map.camera.center,
-      to: LatLng(poi.lat, poi.lon),
-    );
-    if (!mounted) return;
     setState(() {
-      _routing = false;
-      if (plan != null) {
-        _route = plan;
-        _routeFor = poi.id;
-      }
+      _routing = true;
+      _routeError = null;
     });
 
-    if (plan == null) {
-      _showNote('Маршрут не построился — попробуй ещё раз');
-      return;
+    RoutePlan? plan;
+    try {
+      plan = await planWalkingRoute(
+        from: _me ?? _map.camera.center,
+        to: LatLng(poi.lat, poi.lon),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _routing = false;
+          if (plan != null) {
+            _route = plan;
+            _routeFor = poi.id;
+          } else {
+            _routeError = 'Маршрут не построился. Проверь связь и попробуй ещё раз — '
+                'строим по улицам, а не по прямой.';
+          }
+        });
+      }
     }
+
+    if (plan == null || !mounted) return;
     _map.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(plan.points),
@@ -457,23 +504,27 @@ class _HomeScreenState extends State<HomeScreen> {
     const limit = 400;
     final markers = visible.take(limit).map((poi) {
       final isSelected = _selected?.id == poi.id;
+      final inTop = _answerTop.any((top) => top.id == poi.id);
       final color = poi.category.color;
       return Marker(
         point: LatLng(poi.lat, poi.lon),
-        width: isSelected ? 44 : 34,
-        height: isSelected ? 44 : 34,
+        width: isSelected ? 44 : (inTop ? 40 : 34),
+        height: isSelected ? 44 : (inTop ? 40 : 34),
         child: GestureDetector(
           onTap: () => _select(poi),
           child: Container(
             decoration: BoxDecoration(
               color: isSelected ? color : Colors.white,
               shape: BoxShape.circle,
-              border: Border.all(color: isSelected ? color : const Color(0xFFE4E7EC), width: isSelected ? 3 : 2),
+              border: Border.all(
+                color: isSelected || inTop ? color : const Color(0xFFE4E7EC),
+                width: isSelected ? 3 : (inTop ? 3 : 2),
+              ),
               boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8)],
             ),
             child: Icon(
               poi.category.icon,
-              size: isSelected ? 22 : 17,
+              size: isSelected ? 22 : (inTop ? 19 : 17),
               color: isSelected ? Colors.white : color,
             ),
           ),
@@ -560,6 +611,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 onChanged: (value) => setState(() {
                   _category = value;
                   _intentNote = null;
+                  _answerTop = const [];
+                  _answerCount = 0;
                 }),
               ),
               const SizedBox(height: 8),
@@ -571,9 +624,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   onRoute: () => _buildRoute(_selected!),
                   routing: _routing,
                   route: _routeFor == _selected!.id ? _route : null,
+                  error: _routeError,
                 )
               else ...[
                 if (_intentNote != null) _intentRow(scheme),
+                if (_answerTop.isNotEmpty) _answerCard(scheme, from),
                 _results(visible, from),
               ],
               const SizedBox(height: 6),
@@ -585,6 +640,82 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Ответ на запрос: сколько нашлось и три ближайших, с переходом к каждому.
+  Widget _answerCard(ColorScheme scheme, LatLng from) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 6),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _answerCollapsed = !_answerCollapsed),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline, size: 16, color: accent),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _answerCount == 0
+                          ? 'Ничего не нашлось'
+                          : 'Нашёл $_answerCount · ближайшие ${_answerTop.length}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(
+                    _answerCollapsed ? Icons.expand_more : Icons.expand_less,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!_answerCollapsed)
+            for (var i = 0; i < _answerTop.length; i++)
+              InkWell(
+                onTap: () => _select(_answerTop[i]),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    children: [
+                      Text('${i + 1}.', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _answerTop[i].name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              '${_answerTop[i].category.label} · '
+                              '${formatDistance(metersBetween(from, LatLng(_answerTop[i].lat, _answerTop[i].lon)))} '
+                              '· ${walkMinutes(metersBetween(from, LatLng(_answerTop[i].lat, _answerTop[i].lon)))} пешком',
+                              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, size: 16, color: scheme.onSurfaceVariant),
+                    ],
+                  ),
+                ),
+              ),
+        ],
       ),
     );
   }
@@ -637,7 +768,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 4),
         SizedBox(
-          height: 168,
+          // Когда сверху уже показан ответ с тремя ближайшими, списку хватает
+          // половины места: карта должна оставаться видимой.
+          height: _answerTop.isNotEmpty ? 118 : 168,
           child: ListView.builder(
             itemCount: visible.length,
             itemBuilder: (context, index) {

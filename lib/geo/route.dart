@@ -12,16 +12,60 @@ class RoutePlan {
   final double seconds;
 }
 
-/// Построить пеший маршрут через Valhalla (общественный сервер FOSSGIS).
+/// Построить пеший маршрут по улицам.
 ///
-/// Ходим пешком, а не на машине: человек приехал в город и идёт по улицам.
-/// Возвращает `null`, если служба не ответила или маршрута нет — тогда
-/// приложение честно скажет об этом, а не нарисует прямую.
+/// Два общественных сервера: OSRM и Valhalla. Первый обычно быстрее отвечает,
+/// второй — запасной. Если оба молчат, возвращаем `null`: приложение скажет
+/// словами, что маршрута нет, а не нарисует прямую.
 Future<RoutePlan?> planWalkingRoute({
   required LatLng from,
   required LatLng to,
   http.Client? client,
 }) async {
+  final c = client ?? http.Client();
+  final first = await _osrm(c, from, to);
+  if (first != null) return first;
+  return _valhalla(c, from, to);
+}
+
+/// OSRM: пеший профиль, геометрия сразу в GeoJSON.
+Future<RoutePlan?> _osrm(http.Client client, LatLng from, LatLng to) async {
+  final url = Uri.parse(
+    'https://router.project-osrm.org/route/v1/foot/'
+    '${from.longitude},${from.latitude};${to.longitude},${to.latitude}'
+    '?overview=full&geometries=geojson',
+  );
+
+  final http.Response response;
+  try {
+    response = await client.get(url).timeout(const Duration(seconds: 8));
+  } catch (_) {
+    return null;
+  }
+  if (response.statusCode != 200) return null;
+
+  try {
+    final routes = (jsonDecode(response.body) as Map<String, dynamic>)['routes'] as List<dynamic>;
+    if (routes.isEmpty) return null;
+    final route = routes.first as Map<String, dynamic>;
+    final geometry = route['geometry'] as Map<String, dynamic>;
+    final coordinates = (geometry['coordinates'] as List<dynamic>).cast<List<dynamic>>();
+    final points = coordinates
+        .map((pair) => LatLng((pair[1] as num).toDouble(), (pair[0] as num).toDouble()))
+        .toList(growable: false);
+    if (points.length < 2) return null;
+    return RoutePlan(
+      points: points,
+      meters: (route['distance'] as num).toDouble(),
+      seconds: (route['duration'] as num).toDouble(),
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Valhalla (общественный сервер FOSSGIS) — запасной путь.
+Future<RoutePlan?> _valhalla(http.Client client, LatLng from, LatLng to) async {
   final body = jsonEncode({
     'locations': [
       {'lat': from.latitude, 'lon': from.longitude},
@@ -33,17 +77,16 @@ Future<RoutePlan?> planWalkingRoute({
 
   final http.Response response;
   try {
-    response = await (client ?? http.Client())
+    response = await client
         .post(
           Uri.parse('https://valhalla1.openstreetmap.de/route'),
           headers: const {'Content-Type': 'application/json'},
           body: body,
         )
-        .timeout(const Duration(seconds: 20));
+        .timeout(const Duration(seconds: 8));
   } catch (_) {
     return null;
   }
-
   if (response.statusCode != 200) return null;
 
   try {
