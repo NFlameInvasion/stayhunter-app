@@ -64,14 +64,21 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: flutter build apk --release
+        run: flutter build apk --release --split-per-abi
+
+      - name: Проверка подписи
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-arm64-v8a-release.apk | head -4
 
       - name: Выложить в релиз
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk stayhunter.apk
-          gh release view latest >/dev/null 2>&1 || \
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk stayhunter.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk stayhunter-32.apk
+          if ! gh release view latest >/dev/null 2>&1; then
             gh release create latest --title "StayHunter — сборка" --notes "Автоматическая сборка из ветки main."
-          gh release upload latest stayhunter.apk --clobber
+          fi
+          gh release upload latest stayhunter.apk stayhunter-32.apk --clobber
           echo "https://github.com/${{ github.repository }}/releases/download/latest/stayhunter.apk"
