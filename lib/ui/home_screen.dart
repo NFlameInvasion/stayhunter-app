@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -7,6 +11,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../data/city.dart';
 import '../data/poi.dart';
 import '../data/poi_repository.dart';
+import '../geo/bearing.dart';
 import '../geo/distance.dart';
 import '../geo/route.dart';
 import '../map/basemap.dart';
@@ -57,6 +62,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Поворот карты: нужен компасу, чтобы показывать, где север.
   double _rotation = 0;
 
+  /// Куда смотрит телефон (0 — север). null — компас недоступен или ещё не пришёл.
+  double? _heading;
+  StreamSubscription<CompassEvent>? _compass;
+
   /// Построенный пеший маршрут и объект, к которому он ведёт.
   RoutePlan? _route;
   int? _routeFor;
@@ -78,10 +87,22 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _load();
     _search.addListener(() => setState(() {}));
+    try {
+      _compass = FlutterCompass.events?.listen(
+        (event) {
+          final heading = event.heading;
+          if (heading != null && mounted) setState(() => _heading = heading);
+        },
+        onError: (_) {},
+      );
+    } catch (_) {
+      // Телефон без компаса — стрелку направления просто не рисуем.
+    }
   }
 
   @override
   void dispose() {
+    _compass?.cancel();
     _search.dispose();
     _map.dispose();
     _speech.cancel();
@@ -537,16 +558,9 @@ class _HomeScreenState extends State<HomeScreen> {
       markers.add(
         Marker(
           point: me,
-          width: 26,
-          height: 26,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF1D4ED8),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 10)],
-            ),
-          ),
+          width: 54,
+          height: 54,
+          child: _MeMarker(heading: _heading, mapRotation: _rotation),
         ),
       );
     }
@@ -625,6 +639,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   routing: _routing,
                   route: _routeFor == _selected!.id ? _route : null,
                   error: _routeError,
+                  headingDeg: _heading,
+                  bearingDeg: _me == null
+                      ? null
+                      : bearingBetween(_me!, LatLng(_selected!.lat, _selected!.lon)),
                 )
               else ...[
                 if (_intentNote != null) _intentRow(scheme),
@@ -804,6 +822,46 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => _select(poi),
               );
             },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Точка «я» со стрелкой направления: поворачивается вместе с телефоном,
+/// а не с картой — поэтому из угла вычитается поворот карты.
+class _MeMarker extends StatelessWidget {
+  const _MeMarker({required this.heading, required this.mapRotation});
+
+  final double? heading;
+  final double mapRotation;
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF1D4ED8);
+    final h = heading;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        if (h != null)
+          Transform.rotate(
+            angle: (h - mapRotation) * math.pi / 180,
+            child: const SizedBox.expand(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Icon(Icons.navigation, size: 22, color: blue),
+              ),
+            ),
+          ),
+        Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: blue,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 10)],
           ),
         ),
       ],

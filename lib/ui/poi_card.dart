@@ -1,9 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../data/poi.dart';
+import '../geo/bearing.dart';
 import '../geo/distance.dart';
 import '../geo/route.dart';
+import '../theme/app_theme.dart';
 
 /// Карточка выбранного объекта: что это, где, когда открыто, как дойти
 /// и куда посмотреть подробнее.
@@ -17,6 +21,8 @@ class PoiCard extends StatelessWidget {
     required this.routing,
     this.route,
     this.error,
+    this.headingDeg,
+    this.bearingDeg,
   });
 
   final Poi poi;
@@ -32,6 +38,10 @@ class PoiCard extends StatelessWidget {
 
   /// Почему маршрут не построился: словами, в карточке, а не всплывашкой.
   final String? error;
+
+  /// Куда смотрит телефон и куда находится объект: по ним рисуем стрелку.
+  final double? headingDeg;
+  final double? bearingDeg;
 
   Future<void> _openSite() async {
     final uri = poi.website.isNotEmpty
@@ -108,6 +118,27 @@ class PoiCard extends StatelessWidget {
                 : '${formatDistance(meters)} по прямой · ${walkMinutes(meters)} пешком',
             style: TextStyle(fontSize: 13, color: scheme.onSurface),
           ),
+          if (headingDeg != null && bearingDeg != null) ...[
+            const SizedBox(height: 8),
+            Builder(builder: (context) {
+              final relative = relativeBearing(bearing: bearingDeg!, heading: headingDeg!);
+              return Row(
+                children: [
+                  Transform.rotate(
+                    angle: relative * math.pi / 180,
+                    child: const Icon(Icons.navigation, size: 20, color: accent),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${directionWords(relative)} · повернись по стрелке',
+                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                ],
+              );
+            }),
+          ],
           if (error != null) ...[
             const SizedBox(height: 6),
             Text(

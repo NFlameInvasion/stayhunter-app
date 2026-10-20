@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:stayhunter/data/poi.dart';
 import 'package:stayhunter/geo/distance.dart';
+import 'package:stayhunter/geo/bearing.dart';
 import 'package:stayhunter/search/query_intent.dart';
 
 void main() {
@@ -56,6 +57,30 @@ void main() {
       expect(walkMinutes(80), '1 мин');
       expect(walkMinutes(81), '2 мин');
       expect(walkMinutes(340), '5 мин');
+    });
+  });
+
+  group('направление на объект', () {
+    test('север — это 0°, восток — 90°', () {
+      expect(
+        bearingBetween(const LatLng(55.75, 37.61), const LatLng(55.76, 37.61)),
+        closeTo(0, 1),
+      );
+      expect(
+        bearingBetween(const LatLng(55.75, 37.61), const LatLng(55.75, 37.62)),
+        closeTo(90, 1),
+      );
+    });
+
+    test('угол поворота: правее — плюс, левее — минус', () {
+      expect(relativeBearing(bearing: 10, heading: 0), closeTo(10, 0.001));
+      expect(relativeBearing(bearing: 350, heading: 10), closeTo(-20, 0.001));
+    });
+
+    test('словами', () {
+      expect(directionWords(5), 'Объект прямо');
+      expect(directionWords(30), 'Правее на 30°');
+      expect(directionWords(-45), 'Левее на 45°');
     });
   });
 
