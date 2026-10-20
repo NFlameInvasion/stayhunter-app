@@ -95,6 +95,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Текущий зум: по нему решаем, подписывать ли объекты на карте.
   double _zoom = 14;
 
+  /// Панель можно свернуть до одной строки поиска, чтобы видеть больше карты.
+  bool _panelCollapsed = false;
+
   @override
   void initState() {
     super.initState();
@@ -209,6 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _route = null;
       _routeFor = null;
       _routeError = null;
+      _panelCollapsed = false;
     });
     _map.move(LatLng(poi.lat, poi.lon), 16.4);
   }
@@ -244,6 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final intent = understandQuery(text);
     setState(() {
+      _panelCollapsed = false;
       if (intent.understood) {
         _category = intent.category;
         _phrase = '';
@@ -725,11 +730,12 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _panelHandle(scheme),
               TextField(
                 controller: _search,
                 // Поле растёт под длинную фразу: до четырёх строк, дальше прокрутка.
@@ -781,44 +787,76 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              CategoryBar(
-                selected: _category,
-                onChanged: (value) => setState(() {
-                  _category = value;
-                  _intentNote = null;
-                  _answerTop = const [];
-                  _answerCount = 0;
-                }),
-              ),
-              const SizedBox(height: 8),
-              if (_selected != null)
-                PoiCard(
-                  poi: _selected!,
-                  meters: metersBetween(from, LatLng(_selected!.lat, _selected!.lon)),
-                  onClose: _closeCard,
-                  onRoute: () => _buildRoute(_selected!),
-                  routing: _routing,
-                  route: _routeFor == _selected!.id ? _route : null,
-                  error: _routeError,
-                  headingDeg: _heading,
-                  bearingDeg: _me == null
-                      ? null
-                      : bearingBetween(_me!, LatLng(_selected!.lat, _selected!.lon)),
-                )
-              else ...[
-                if (_intentNote != null) _intentRow(scheme),
-                if (_answerTop.isNotEmpty) _answerCard(scheme, from),
-                _results(visible, from),
+              if (!_panelCollapsed) ...[
+                const SizedBox(height: 8),
+                CategoryBar(
+                  selected: _category,
+                  onChanged: (value) => setState(() {
+                    _category = value;
+                    _intentNote = null;
+                    _answerTop = const [];
+                    _answerCount = 0;
+                  }),
+                ),
+                const SizedBox(height: 8),
+                if (_selected != null)
+                  PoiCard(
+                    poi: _selected!,
+                    meters: metersBetween(from, LatLng(_selected!.lat, _selected!.lon)),
+                    onClose: _closeCard,
+                    onRoute: () => _buildRoute(_selected!),
+                    routing: _routing,
+                    route: _routeFor == _selected!.id ? _route : null,
+                    error: _routeError,
+                    headingDeg: _heading,
+                    bearingDeg: _me == null
+                        ? null
+                        : bearingBetween(_me!, LatLng(_selected!.lat, _selected!.lon)),
+                  )
+                else ...[
+                  if (_intentNote != null) _intentRow(scheme),
+                  if (_answerTop.isNotEmpty) _answerCard(scheme, from),
+                  _results(visible, from),
+                ],
+                const SizedBox(height: 6),
+                Text(
+                  'Данные © OpenStreetMap · карта © CARTO',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+                ),
               ],
-              const SizedBox(height: 6),
-              Text(
-                'Данные © OpenStreetMap · карта © CARTO',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
-              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Ручка панели: свернуть до строки поиска или развернуть обратно.
+  Widget _panelHandle(ColorScheme scheme) {
+    return InkWell(
+      onTap: () => setState(() => _panelCollapsed = !_panelCollapsed),
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: 22,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.outlineVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              _panelCollapsed ? Icons.expand_less : Icons.expand_more,
+              size: 16,
+              color: scheme.onSurfaceVariant,
+            ),
+          ],
         ),
       ),
     );
