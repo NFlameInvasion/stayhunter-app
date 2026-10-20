@@ -584,7 +584,11 @@ class _HomeScreenState extends State<HomeScreen> {
             top: MediaQuery.paddingOf(context).top + 60,
             child: MapControls(
               rotation: _rotation,
-              onNorth: () => _map.rotate(0),
+              onNorth: () {
+                // Всегда возвращаем север вверх, даже если карту крутили дважды.
+                _map.rotate(0);
+                setState(() => _rotation = 0);
+              },
               onLocate: _locate,
               locating: _locating,
             ),
@@ -682,7 +686,7 @@ class _HomeScreenState extends State<HomeScreen> {
           height: 30,
           alignment: Alignment.centerLeft,
           child: Padding(
-            padding: const EdgeInsets.only(left: 24),
+            padding: const EdgeInsets.only(left: 18),
             child: Align(
               alignment: Alignment.centerLeft,
               child: GestureDetector(
@@ -728,30 +732,45 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               TextField(
                 controller: _search,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _submitSearch(),
+                // Поле растёт под длинную фразу: до четырёх строк, дальше прокрутка.
+                minLines: 1,
+                maxLines: 4,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
                   hintText: 'Что найти? Банк, обмен, аптека…',
-                  prefixIcon: const Icon(Icons.search, size: 20),
+                  prefixIcon: const Padding(
+                    padding: EdgeInsets.only(left: 6),
+                    child: Icon(Icons.search, size: 20),
+                  ),
                   suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-                  suffixIcon: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: _listening ? 'Остановить' : 'Сказать голосом',
-                        icon: Icon(
-                          _listening ? Icons.mic : Icons.mic_none,
-                          size: 20,
-                          color: _listening ? const Color(0xFFB42318) : null,
+                  suffixIcon: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: _listening ? 'Остановить' : 'Сказать голосом',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                          icon: Icon(
+                            _listening ? Icons.mic : Icons.mic_none,
+                            size: 20,
+                            color: _listening ? const Color(0xFFB42318) : null,
+                          ),
+                          onPressed: _toggleVoice,
                         ),
-                        onPressed: _toggleVoice,
-                      ),
-                      IconButton(
-                        tooltip: 'Найти',
-                        icon: const Icon(Icons.arrow_forward, size: 20),
-                        onPressed: _submitSearch,
-                      ),
-                    ],
+                        IconButton(
+                          tooltip: 'Найти',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                          icon: const Icon(Icons.arrow_forward, size: 20),
+                          onPressed: _submitSearch,
+                        ),
+                      ],
+                    ),
                   ),
                   filled: true,
                   fillColor: scheme.surfaceContainerHighest,

@@ -28,9 +28,24 @@ class MapControls extends StatelessWidget {
         _RoundButton(
           tooltip: 'Повернуть на север',
           onTap: onNorth,
-          child: Transform.rotate(
-            angle: -rotation * math.pi / 180,
-            child: const Icon(Icons.navigation, size: 22, color: accent),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Transform.rotate(
+                angle: -rotation * math.pi / 180,
+                child: const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Icon(Icons.navigation, size: 19, color: accent),
+                ),
+              ),
+              const Positioned(
+                top: 2,
+                child: Text(
+                  'С',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: accent),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 8),
