@@ -90,10 +90,10 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           FlutterMap(
             mapController: _map,
-            options: MapOptions(
+            options: const MapOptions(
               initialCenter: _cityCenter,
               initialZoom: 14.6,
-              interactionOptions: const InteractionOptions(
+              interactionOptions: InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
             ),
