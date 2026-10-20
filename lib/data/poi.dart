@@ -36,6 +36,7 @@ class Poi {
     this.address = '',
     this.hours = '',
     this.phone = '',
+    this.website = '',
   });
 
   final int id;
@@ -47,6 +48,9 @@ class Poi {
   final String hours;
   final String phone;
 
+  /// Сайт объекта из OSM (website / contact:website). Пусто — откроем страницу OSM.
+  final String website;
+
   factory Poi.fromJson(Map<String, dynamic> json) => Poi(
         id: (json['id'] as num).toInt(),
         name: (json['name'] as String).trim(),
@@ -56,5 +60,6 @@ class Poi {
         address: (json['addr'] as String? ?? '').trim(),
         hours: (json['hours'] as String? ?? '').trim(),
         phone: (json['phone'] as String? ?? '').trim(),
+        website: (json['web'] as String? ?? '').trim(),
       );
 }

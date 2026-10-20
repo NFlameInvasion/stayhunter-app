@@ -3,42 +3,48 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../data/poi.dart';
 import '../geo/distance.dart';
+import '../geo/route.dart';
 
-/// Карточка выбранного объекта: что это, где, когда открыто и как дойти.
+/// Карточка выбранного объекта: что это, где, когда открыто, как дойти
+/// и куда посмотреть подробнее.
 class PoiCard extends StatelessWidget {
   const PoiCard({
     super.key,
     required this.poi,
     required this.meters,
     required this.onClose,
+    required this.onRoute,
+    required this.routing,
+    this.route,
   });
 
   final Poi poi;
   final double meters;
   final VoidCallback onClose;
+  final VoidCallback onRoute;
 
-  Future<void> _route() async {
-    final uri = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&destination=${poi.lat},${poi.lon}',
-    );
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
+  /// Идёт построение маршрута — кнопка показывает это и не нажимается дважды.
+  final bool routing;
 
-  Future<void> _call() async {
-    await launchUrl(Uri(scheme: 'tel', path: poi.phone));
+  /// Построенный пеший маршрут; пока его нет, показываем расстояние по прямой.
+  final RoutePlan? route;
+
+  Future<void> _openSite() async {
+    final uri = poi.website.isNotEmpty
+        ? Uri.tryParse(poi.website.contains('://') ? poi.website : 'https://${poi.website}')
+        : Uri.parse('https://www.openstreetmap.org/node/${poi.id}');
+    if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final color = poi.category.color;
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, -6)),
-        ],
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -51,7 +57,7 @@ class PoiCard extends StatelessWidget {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
+                  color: color.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(poi.category.icon, color: color),
@@ -72,7 +78,7 @@ class PoiCard extends StatelessWidget {
                       [poi.category.label, if (poi.address.isNotEmpty) poi.address].join(' · '),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, color: Color(0xFF667085)),
+                      style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
                     ),
                     if (poi.hours.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -93,27 +99,33 @@ class PoiCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            '${formatDistance(meters)} · ${walkMinutes(meters)} пешком',
-            style: const TextStyle(fontSize: 13, color: Color(0xFF344054)),
+            route != null
+                ? '${formatDistance(route!.meters)} · ${(route!.seconds / 60).ceil()} мин пешком'
+                : '${formatDistance(meters)} по прямой · ${walkMinutes(meters)} пешком',
+            style: TextStyle(fontSize: 13, color: scheme.onSurface),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _route,
-                  icon: const Icon(Icons.directions, size: 18),
-                  label: const Text('Маршрут'),
+                  onPressed: routing ? null : onRoute,
+                  icon: routing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.directions_walk, size: 18),
+                  label: Text(routing ? 'Строю…' : 'Маршрут'),
                 ),
               ),
-              if (poi.phone.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _call,
-                  icon: const Icon(Icons.call, size: 18),
-                  label: const Text('Позвонить'),
-                ),
-              ],
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _openSite,
+                icon: Icon(poi.website.isNotEmpty ? Icons.public : Icons.map_outlined, size: 18),
+                label: Text(poi.website.isNotEmpty ? 'Сайт' : 'OpenStreetMap'),
+              ),
             ],
           ),
         ],

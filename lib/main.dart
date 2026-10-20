@@ -1,30 +1,33 @@
 import 'package:flutter/material.dart';
 
+import 'theme/app_theme.dart';
 import 'ui/home_screen.dart';
 
 void main() => runApp(const StayHunterApp());
 
-class StayHunterApp extends StatelessWidget {
+class StayHunterApp extends StatefulWidget {
   const StayHunterApp({super.key});
 
   @override
+  State<StayHunterApp> createState() => _StayHunterAppState();
+}
+
+class _StayHunterAppState extends State<StayHunterApp> {
+  /// Тема одна на всё приложение: карта и панели меняются вместе.
+  bool _dark = false;
+
+  @override
   Widget build(BuildContext context) {
-    const accent = Color(0xFF0F7B6C);
     return MaterialApp(
       title: 'StayHunter',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: accent),
-        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: accent,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
+      themeMode: _dark ? ThemeMode.dark : ThemeMode.light,
+      home: HomeScreen(
+        isDark: _dark,
+        onToggleTheme: () => setState(() => _dark = !_dark),
       ),
-      home: const HomeScreen(),
     );
   }
 }

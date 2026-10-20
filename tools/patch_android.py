@@ -21,18 +21,26 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
 GRADLE = ROOT / "android/app/build.gradle.kts"
 
-INTERNET = '    <uses-permission android:name="android.permission.INTERNET" />\n'
+PERMISSIONS = (
+    '    <uses-permission android:name="android.permission.INTERNET" />\n'
+    '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n'
+    '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n'
+)
 
 
 def patch_manifest() -> None:
     text = MANIFEST.read_text(encoding="utf-8")
-    if "android.permission.INTERNET" not in text:
-        text = text.replace("<manifest ", "<manifest ", 1)
+    missing = "".join(
+        line + "\n"
+        for line in PERMISSIONS.strip().splitlines()
+        if line.split('name="')[1].split('"')[0] not in text
+    )
+    if missing:
         # Вставляем сразу после открывающего тега <manifest ...>, а не внутрь <application>.
-        text = re.sub(r"(<manifest\b[^>]*>\s*\n)", r"\1" + INTERNET, text, count=1)
+        text = re.sub(r"(<manifest\b[^>]*>\s*\n)", r"\1" + missing, text, count=1)
     text = re.sub(r'android:label="[^"]*"', 'android:label="StayHunter"', text, count=1)
     MANIFEST.write_text(text, encoding="utf-8")
-    print("manifest: INTERNET и имя приложения на месте")
+    print("manifest: интернет, геолокация и имя приложения на месте")
 
 
 def patch_signing() -> None:

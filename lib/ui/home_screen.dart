@@ -1,16 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../data/poi.dart';
 import '../data/poi_repository.dart';
 import '../geo/distance.dart';
+import '../geo/route.dart';
+import '../map/basemap.dart';
+import '../theme/app_theme.dart';
 import 'category_bar.dart';
+import 'map_controls.dart';
 import 'poi_card.dart';
 
 /// Главный экран: карта на весь экран и панель снизу — поиск, категории, объекты.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    required this.isDark,
+    required this.onToggleTheme,
+  });
+
+  final bool isDark;
+  final VoidCallback onToggleTheme;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,6 +43,18 @@ class _HomeScreenState extends State<HomeScreen> {
   PoiCategory? _category;
   Poi? _selected;
 
+  /// Где человек: появится после кнопки «Где я».
+  LatLng? _me;
+  bool _locating = false;
+
+  /// Поворот карты: нужен компасу, чтобы показывать, где север.
+  double _rotation = 0;
+
+  /// Построенный пеший маршрут и объект, к которому он ведёт.
+  RoutePlan? _route;
+  int? _routeFor;
+  bool _routing = false;
+
   @override
   void initState() {
     super.initState();
@@ -48,8 +72,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _load() async {
     try {
       final list = await _repository.load();
-      list.sort((a, b) => metersBetween(_cityCenter, LatLng(a.lat, a.lon))
-          .compareTo(metersBetween(_cityCenter, LatLng(b.lat, b.lon))));
+      final from = _me ?? _cityCenter;
+      list.sort((a, b) => metersBetween(from, LatLng(a.lat, a.lon))
+          .compareTo(metersBetween(from, LatLng(b.lat, b.lon))));
       if (!mounted) return;
       setState(() {
         _all = list;
@@ -77,64 +102,212 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _select(Poi poi) {
-    setState(() => _selected = poi);
+    setState(() {
+      _selected = poi;
+      _route = null;
+      _routeFor = null;
+    });
     _map.move(LatLng(poi.lat, poi.lon), 16.4);
+  }
+
+  void _closeCard() {
+    setState(() {
+      _selected = null;
+      _route = null;
+      _routeFor = null;
+    });
+  }
+
+  void _showNote(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Показать, где мы находимся, и подвести камеру.
+  Future<void> _locate() async {
+    setState(() => _locating = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        _showNote('Включи геолокацию в телефоне');
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _showNote('Нет доступа к геолокации');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      if (!mounted) return;
+      final me = LatLng(position.latitude, position.longitude);
+      setState(() => _me = me);
+      _map.move(me, 16.2);
+    } catch (_) {
+      _showNote('Не удалось определить место — попробуй на улице');
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  /// Пеший маршрут до объекта — по улицам, на нашей карте, без Google.
+  Future<void> _buildRoute(Poi poi) async {
+    if (_routing) return;
+    setState(() => _routing = true);
+    final plan = await planWalkingRoute(
+      from: _me ?? _map.camera.center,
+      to: LatLng(poi.lat, poi.lon),
+    );
+    if (!mounted) return;
+    setState(() {
+      _routing = false;
+      if (plan != null) {
+        _route = plan;
+        _routeFor = poi.id;
+      }
+    });
+
+    if (plan == null) {
+      _showNote('Маршрут не построился — попробуй ещё раз');
+      return;
+    }
+    _map.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(plan.points),
+        padding: const EdgeInsets.fromLTRB(50, 110, 50, 340),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final visible = _visible;
+    final from = _me ?? _cityCenter;
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       body: Stack(
         children: [
           FlutterMap(
             mapController: _map,
-            options: const MapOptions(
+            options: MapOptions(
               initialCenter: _cityCenter,
               initialZoom: 14.6,
-              interactionOptions: InteractionOptions(
-                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-              ),
+              minZoom: 3,
+              maxZoom: 19,
+              onPositionChanged: (camera, _) {
+                if ((camera.rotation - _rotation).abs() > 0.3) {
+                  setState(() => _rotation = camera.rotation);
+                }
+              },
+              onTap: (_, __) => _closeCard(),
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: Basemap.of(widget.isDark).url,
+                tileSize: 512,
+                zoomOffset: -1,
                 userAgentPackageName: 'ru.nflame.stayhunter',
+                tileBuilder: (context, tile, _) => ColorFiltered(
+                  colorFilter: Basemap.of(widget.isDark).grade,
+                  child: tile,
+                ),
               ),
-              MarkerLayer(markers: _markers(visible)),
+              if (_route != null)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _route!.points,
+                      strokeWidth: 5,
+                      color: accent,
+                    ),
+                  ],
+                ),
+              MarkerLayer(markers: _markers(visible, from)),
             ],
           ),
           Positioned(
             left: 12,
             top: MediaQuery.paddingOf(context).top + 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.94),
-                borderRadius: BorderRadius.circular(999),
-                boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 12)],
-              ),
-              child: const Text(
+            child: _pill(
+              scheme,
+              const Text(
                 _cityName,
                 style: TextStyle(fontSize: 12, color: Color(0xFF475467)),
               ),
             ),
           ),
           Positioned(
+            right: 12,
+            top: MediaQuery.paddingOf(context).top + 8,
+            child: Tooltip(
+              message: widget.isDark ? 'Светлая тема' : 'Тёмная тема',
+              child: Material(
+                color: scheme.surface,
+                shape: const CircleBorder(),
+                elevation: 3,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: widget.onToggleTheme,
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Icon(
+                      widget.isDark ? Icons.light_mode : Icons.dark_mode,
+                      size: 20,
+                      color: accent,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: MediaQuery.paddingOf(context).top + 60,
+            child: MapControls(
+              rotation: _rotation,
+              onNorth: () => _map.rotate(0),
+              onLocate: _locate,
+              locating: _locating,
+            ),
+          ),
+          Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: _panel(visible),
+            child: _panel(visible, from),
           ),
         ],
       ),
     );
   }
 
-  List<Marker> _markers(List<Poi> visible) {
+  Widget _pill(ColorScheme scheme, Widget child) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 12)],
+      ),
+      child: child,
+    );
+  }
+
+  List<Marker> _markers(List<Poi> visible, LatLng from) {
     const limit = 400;
-    return visible.take(limit).map((poi) {
+    final markers = visible.take(limit).map((poi) {
       final isSelected = _selected?.id == poi.id;
       final color = poi.category.color;
       return Marker(
@@ -158,15 +331,36 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       );
-    }).toList(growable: false);
+    }).toList();
+
+    final me = _me;
+    if (me != null) {
+      markers.add(
+        Marker(
+          point: me,
+          width: 26,
+          height: 26,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1D4ED8),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 10)],
+            ),
+          ),
+        ),
+      );
+    }
+    return markers;
   }
 
-  Widget _panel(List<Poi> visible) {
+  Widget _panel(List<Poi> visible, LatLng from) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: [BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, -6))],
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, -6))],
       ),
       child: SafeArea(
         top: false,
@@ -185,12 +379,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   suffixIcon: IconButton(
                     tooltip: 'Сказать голосом',
                     icon: const Icon(Icons.mic_none, size: 20),
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Голос появится в следующем шаге')),
-                    ),
+                    onPressed: () => _showNote('Голос появится в следующем шаге'),
                   ),
                   filled: true,
-                  fillColor: const Color(0xFFF2F4F7),
+                  fillColor: scheme.surfaceContainerHighest,
                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -207,16 +399,19 @@ class _HomeScreenState extends State<HomeScreen> {
               if (_selected != null)
                 PoiCard(
                   poi: _selected!,
-                  meters: metersBetween(_cityCenter, LatLng(_selected!.lat, _selected!.lon)),
-                  onClose: () => setState(() => _selected = null),
+                  meters: metersBetween(from, LatLng(_selected!.lat, _selected!.lon)),
+                  onClose: _closeCard,
+                  onRoute: () => _buildRoute(_selected!),
+                  routing: _routing,
+                  route: _routeFor == _selected!.id ? _route : null,
                 )
               else
-                _results(visible),
+                _results(visible, from),
               const SizedBox(height: 6),
-              const Text(
-                'Данные © OpenStreetMap',
+              Text(
+                'Данные © OpenStreetMap · карта © CARTO',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 10, color: Color(0xFF98A2B3)),
+                style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -225,7 +420,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _results(List<Poi> visible) {
+  Widget _results(List<Poi> visible, LatLng from) {
+    final scheme = Theme.of(context).colorScheme;
     if (_loading) {
       return const SizedBox(
         height: 180,
@@ -246,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Text(
           visible.isEmpty ? 'Ничего не найдено' : 'Рядом: ${visible.length}',
-          style: const TextStyle(fontSize: 12, color: Color(0xFF667085)),
+          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
         ),
         const SizedBox(height: 4),
         SizedBox(
@@ -255,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
             itemCount: visible.length,
             itemBuilder: (context, index) {
               final poi = visible[index];
-              final meters = metersBetween(_cityCenter, LatLng(poi.lat, poi.lon));
+              final meters = metersBetween(from, LatLng(poi.lat, poi.lon));
               return ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
