@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -46,7 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final _speech = stt.SpeechToText();
 
   ml.MapLibreMapController? _map;
-  StreamSubscription<ml.Circle>? _circleTap;
 
   City _city = cities.first;
   List<Poi> _all = const [];
@@ -89,7 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const _voiceMax = Duration(minutes: 2);
 
   /// Круги на карте: их номера нужны, чтобы понять, по какому объекту тапнули.
-  final Map<int, Poi> _circlePois = {};
+  final Map<String, Poi> _circlePois = {};
 
   ml.Symbol? _meArrow;
   bool _arrowImageReady = false;
@@ -127,7 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _compass?.cancel();
-    _circleTap?.cancel();
     _voiceLimit?.cancel();
     _voiceRestart?.cancel();
     unmuteDeviceSound();
@@ -222,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onMapCreated(ml.MapLibreMapController controller) {
     _map = controller;
-    _circleTap = controller.onCircleTapped.listen((circle) {
+    controller.onCircleTapped.add((circle) {
       final poi = _circlePois[circle.id];
       if (poi != null) _select(poi);
     });
@@ -331,9 +330,8 @@ class _HomeScreenState extends State<HomeScreen> {
             textColor: widget.isDark ? '#e6edf7' : '#101828',
             textHaloColor: widget.isDark ? '#0b0f14' : '#ffffff',
             textHaloWidth: 1.2,
-            textOffset: const [0, 1.3],
+            textOffset: const Offset(0, 1.3),
             textAnchor: 'top',
-            textAllowOverlap: true,
           ),
         );
       } catch (_) {
@@ -375,8 +373,6 @@ class _HomeScreenState extends State<HomeScreen> {
             iconImage: 'me-arrow',
             iconSize: 0.5,
             iconRotate: (_heading ?? 0) - _rotation,
-            iconAllowOverlap: true,
-            iconIgnorePlacement: true,
           ),
         );
         _drawnHeading = _heading;
@@ -611,6 +607,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _scheduleVoiceRestart() {
     if (!_listening) return;
+    // Телефон закончил сеанс на паузе, не отдав итог: сохраняем то, что он
+    // успел расслышать, иначе следующий сеанс начнёт с чистого листа и
+    // потеряет всё сказанное до паузы.
+    _voiceConfirmed = _joinVoice(_voiceConfirmed, _voiceDraft);
+    _voiceDraft = '';
     final started = _voiceStarted;
     if (started != null && DateTime.now().difference(started) >= _voiceMax) {
       _stopVoice(submit: true);
@@ -836,7 +837,8 @@ class _HomeScreenState extends State<HomeScreen> {
               TextField(
                 controller: _search,
                 minLines: 1,
-                maxLines: 4,
+                maxLines: 6,
+                isDense: true,
                 keyboardType: TextInputType.multiline,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
@@ -917,12 +919,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (_answerTop.isNotEmpty) _answerCard(scheme, from),
                   _results(visible, from),
                 ],
-                const SizedBox(height: 6),
-                Text(
-                  'Данные © OpenStreetMap · карта © OpenFreeMap',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
-                ),
               ],
             ],
           ),
@@ -932,27 +928,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _panelHandle(ColorScheme scheme) {
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => _panelCollapsed = !_panelCollapsed),
-      borderRadius: BorderRadius.circular(12),
       child: SizedBox(
-        height: 22,
+        height: 34,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 40,
+              width: 46,
               height: 4,
               decoration: BoxDecoration(
                 color: scheme.outlineVariant,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(
-              _panelCollapsed ? Icons.expand_less : Icons.expand_more,
-              size: 16,
-              color: scheme.onSurfaceVariant,
+            const SizedBox(width: 10),
+            Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              child: Icon(
+                _panelCollapsed ? Icons.expand_less : Icons.expand_more,
+                size: 22,
+                color: scheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
