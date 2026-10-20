@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../audio/device_sound.dart';
 import '../data/city.dart';
 import '../data/poi.dart';
 import '../data/poi_repository.dart';
@@ -81,6 +82,17 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Голос: распознавание телефона, без отправки звука наружу.
   bool _speechReady = false;
   bool _listening = false;
+  String _voiceConfirmed = '';
+  String _voiceDraft = '';
+  Timer? _voiceLimit;
+  Timer? _voiceRestart;
+  DateTime? _voiceStarted;
+
+  /// Предел одной голосовой фразы — две минуты, как в Aido.
+  static const _voiceMax = Duration(minutes: 2);
+
+  /// Текущий зум: по нему решаем, подписывать ли объекты на карте.
+  double _zoom = 14;
 
   @override
   void initState() {
@@ -103,6 +115,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _compass?.cancel();
+    _voiceLimit?.cancel();
+    _voiceRestart?.cancel();
+    unmuteDeviceSound();
     _search.dispose();
     _map.dispose();
     _speech.cancel();
@@ -281,20 +296,22 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Голос: слушаем телефон, заполняем поле и сразу ищем.
   Future<void> _toggleVoice() async {
     if (_listening) {
-      await _speech.stop();
-      if (mounted) setState(() => _listening = false);
+      // Второе нажатие — конец фразы. Паузы её не заканчивают.
+      await _stopVoice(submit: true);
       return;
     }
 
     if (!_speechReady) {
       _speechReady = await _speech.initialize(
         onStatus: (status) {
-          if ((status == 'done' || status == 'notListening') && mounted) {
-            setState(() => _listening = false);
+          // Телефон сам заканчивает сеанс на паузе. Пока человек не нажал «стоп»
+          // и не вышло две минуты — начинаем слушать снова и копим сказанное.
+          if (_listening && (status == 'done' || status == 'notListening')) {
+            _scheduleVoiceRestart();
           }
         },
         onError: (_) {
-          if (mounted) setState(() => _listening = false);
+          if (_listening) _scheduleVoiceRestart();
         },
       );
     }
@@ -303,23 +320,89 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    _voiceConfirmed = '';
+    _voiceDraft = '';
+    _voiceStarted = DateTime.now();
     setState(() => _listening = true);
-    await _speech.listen(
-      listenOptions: stt.SpeechListenOptions(
-        localeId: 'ru_RU',
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 4),
-      ),
-      onResult: (result) {
-        _search.text = result.recognizedWords;
-        _search.selection = TextSelection.fromPosition(TextPosition(offset: _search.text.length));
-        setState(() {});
-        if (result.finalResult) {
-          setState(() => _listening = false);
-          _submitSearch();
-        }
-      },
-    );
+    // Системный писк распознавателя глушим на время записи.
+    await muteDeviceSound();
+    _voiceLimit?.cancel();
+    _voiceLimit = Timer(_voiceMax, () => _stopVoice(submit: true));
+    await _startListening();
+  }
+
+  /// Один сеанс слушания. Телефон может окончить его сам — тогда начнём новый.
+  Future<void> _startListening() async {
+    try {
+      await _speech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: 'ru_RU',
+          listenFor: const Duration(minutes: 2),
+          pauseFor: const Duration(seconds: 3),
+          partialResults: true,
+        ),
+        onResult: _onVoiceResult,
+      );
+    } catch (_) {
+      await _stopVoice(submit: false);
+    }
+  }
+
+  void _onVoiceResult(stt.SpeechRecognitionResult result) {
+    final text = result.recognizedWords.trim();
+    if (text.isEmpty) return;
+    if (result.finalResult) {
+      _voiceConfirmed = _joinVoice(_voiceConfirmed, text);
+      _voiceDraft = '';
+    } else {
+      _voiceDraft = text;
+    }
+    final combined = _joinVoice(_voiceConfirmed, _voiceDraft);
+    _search.text = combined;
+    _search.selection = TextSelection.fromPosition(TextPosition(offset: combined.length));
+    setState(() {});
+  }
+
+  /// Сложить куски так, чтобы одно и то же не повторялось.
+  String _joinVoice(String confirmed, String draft) {
+    final first = confirmed.trim();
+    final second = draft.trim();
+    if (first.isEmpty) return second;
+    if (second.isEmpty) return first;
+    if (first.endsWith(second)) return first;
+    if (second.startsWith(first)) return second;
+    return '$first $second';
+  }
+
+  /// Продолжить слушать, если человек ещё не закончил и время не вышло.
+  void _scheduleVoiceRestart() {
+    if (!_listening) return;
+    final started = _voiceStarted;
+    if (started != null && DateTime.now().difference(started) >= _voiceMax) {
+      _stopVoice(submit: true);
+      return;
+    }
+    _voiceRestart?.cancel();
+    _voiceRestart = Timer(const Duration(milliseconds: 500), () {
+      if (_listening) _startListening();
+    });
+  }
+
+  Future<void> _stopVoice({required bool submit}) async {
+    _voiceLimit?.cancel();
+    _voiceRestart?.cancel();
+    if (mounted) setState(() => _listening = false);
+    try {
+      await _speech.stop();
+    } catch (_) {
+      // Уже не слушает.
+    }
+    await unmuteDeviceSound();
+    final text = _joinVoice(_voiceConfirmed, _voiceDraft);
+    if (text.isEmpty) return;
+    _search.text = text;
+    _search.selection = TextSelection.fromPosition(TextPosition(offset: text.length));
+    if (submit) _submitSearch();
   }
 
   /// Показать, где мы находимся, и подвести камеру.
@@ -412,9 +495,16 @@ class _HomeScreenState extends State<HomeScreen> {
               minZoom: 3,
               maxZoom: 19,
               onPositionChanged: (camera, _) {
+                var changed = false;
                 if ((camera.rotation - _rotation).abs() > 0.3) {
-                  setState(() => _rotation = camera.rotation);
+                  _rotation = camera.rotation;
+                  changed = true;
                 }
+                if ((camera.zoom - _zoom).abs() > 0.2) {
+                  _zoom = camera.zoom;
+                  changed = true;
+                }
+                if (changed) setState(() {});
               },
               onTap: (_, __) => _closeCard(),
             ),
@@ -561,6 +651,58 @@ class _HomeScreenState extends State<HomeScreen> {
           width: 54,
           height: 54,
           child: _MeMarker(heading: _heading, mapRotation: _rotation),
+        ),
+      );
+    }
+
+    // Подписи: выбранный объект, три из ответа и — на близком зуме — ближайшие.
+    final scheme = Theme.of(context).colorScheme;
+    final labelled = <Poi>[];
+    void addLabel(Poi poi) {
+      if (!labelled.any((x) => x.id == poi.id)) labelled.add(poi);
+    }
+
+    final selected = _selected;
+    if (selected != null) addLabel(selected);
+    for (final poi in _answerTop) {
+      addLabel(poi);
+    }
+    if (_zoom >= 16) {
+      for (final poi in visible.take(8)) {
+        addLabel(poi);
+      }
+    }
+
+    for (final poi in labelled) {
+      markers.add(
+        Marker(
+          point: LatLng(poi.lat, poi.lon),
+          width: 190,
+          height: 30,
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 24),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                onTap: () => _select(poi),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 6)],
+                  ),
+                  child: Text(
+                    poi.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       );
     }
