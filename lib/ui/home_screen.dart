@@ -254,12 +254,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (camera == null) return;
     final bearing = camera.bearing;
     final zoom = camera.zoom;
-    if ((bearing - _rotation).abs() > 0.5 || (zoom - _zoom).abs() > 0.2) {
+    final zoomChanged = (zoom - _zoom).abs() > 0.05;
+    if ((bearing - _rotation).abs() > 0.5 || zoomChanged) {
       setState(() {
         _rotation = bearing;
         _zoom = zoom;
       });
     }
+    // При смене масштаба треугольник пересчитываем: его размер задан в метрах.
+    if (zoomChanged && _me != null) _updateTriangle(_heading ?? 0, force: true);
   }
 
   void _moveCamera(double lat, double lon, double zoom) {
@@ -504,10 +507,13 @@ class _HomeScreenState extends State<HomeScreen> {
   List<LatLng> _trianglePoints(LatLng me, double heading) {
     // Длина в метрах считается от масштаба: на экране треугольник всегда
     // около 40 точек, иначе на крупном зуме он закрывает полкарты.
-    final metersPerPixel =
-        156543.03392 * math.cos(me.latitude * math.pi / 180) /
-            math.pow(2, _zoom).toDouble();
-    final length = (metersPerPixel * 44).clamp(4.0, 4000.0);
+    // Масштаб берём у самой карты: поле _zoom обновляется только по событию
+    // остановки камеры и успевает отстать от того, что видно на экране.
+    final zoom = _map?.cameraPosition?.zoom ?? _zoom;
+    final metersPerPixel = 156543.03392 *
+        math.cos(me.latitude * math.pi / 180) /
+        math.pow(2, zoom).toDouble();
+    final length = (metersPerPixel * 44).clamp(2.0, 1500.0);
     return [
       _destination(me, heading, length),
       _destination(me, heading - 148, length * 0.62),
@@ -532,9 +538,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return LatLng(lat2 * 180 / math.pi, lon2 * 180 / math.pi);
   }
 
-  Future<void> _updateTriangle(double heading) async {
+  Future<void> _updateTriangle(double heading, {bool force = false}) async {
     final drawn = _drawnHeading;
-    if (drawn == null || (heading - drawn).abs() < 6) return;
+    if (!force && (drawn == null || (heading - drawn).abs() < 6)) return;
     final me = _me;
     final controller = _map;
     if (me == null || controller == null || _triangleBusy) return;
