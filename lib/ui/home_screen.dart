@@ -372,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final heading = _heading ?? 0;
         _meTriangle = await controller.addFill(
           ml.FillOptions(
-            geometry: _trianglePoints(me, heading),
+            geometry: [_trianglePoints(me, heading)],
             fillColor: '#1d4ed8',
             fillOutlineColor: '#ffffff',
             fillOpacity: 0.95,
@@ -447,7 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (old != null) await controller.removeFill(old);
       _meTriangle = await controller.addFill(
         ml.FillOptions(
-          geometry: _trianglePoints(me, heading),
+          geometry: [_trianglePoints(me, heading)],
           fillColor: '#1d4ed8',
           fillOutlineColor: '#ffffff',
           fillOpacity: 0.95,
