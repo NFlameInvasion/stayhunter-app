@@ -74,10 +74,13 @@ Future<RoutePlan?> _osrmFrom(
         .map((pair) => LatLng((pair[1] as num).toDouble(), (pair[0] as num).toDouble()))
         .toList(growable: false);
     if (points.length < 2) return null;
+    final meters = (route['distance'] as num).toDouble();
+    // Время считаем сами: 4 км/ч — спокойный шаг человека. Ответ сервера
+    // для пешеходов иногда приходит с автомобильной скоростью.
     return RoutePlan(
       points: points,
-      meters: (route['distance'] as num).toDouble(),
-      seconds: (route['duration'] as num).toDouble(),
+      meters: meters,
+      seconds: meters / (4000 / 3600),
     );
   } catch (_) {
     return null;

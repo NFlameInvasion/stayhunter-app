@@ -24,6 +24,7 @@ import '../geo/route.dart';
 import '../map/vector_style.dart';
 import '../search/query_intent.dart';
 import '../theme/app_theme.dart';
+import 'city_picker.dart';
 import 'settings_sheet.dart';
 import 'category_bar.dart';
 import 'map_controls.dart';
@@ -101,6 +102,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _redrawPending = false;
   String _lastSignature = '';
 
+  /// Доля экрана под развёрнутую шторку: 0.32 — примерно треть.
+  double _sheetFraction = 0.32;
+
   /// Сколько метров в одной точке экрана по последнему известному виду карты.
   /// По этому числу задаётся размер треугольника направления.
   double _metersPerPixel = 20;
@@ -124,8 +128,8 @@ class _HomeScreenState extends State<HomeScreen> {
         (event) {
           final heading = event.heading;
           if (heading == null || !mounted) return;
-          setState(() => _heading = heading);
-          _updateTriangle(heading);
+          setState(() => _heading = _smoothHeading(heading));
+          _updateTriangle(_heading!);
         },
         onError: (_) {},
       );
@@ -205,24 +209,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pickCity() async {
     final chosen = await showModalBottomSheet<City>(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text('Город', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            ),
-            for (final city in cities)
-              ListTile(
-                title: Text(city.name),
-                trailing: city.key == _city.key ? const Icon(Icons.check) : null,
-                onTap: () => Navigator.pop(context, city),
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => CityPicker(cities: cities, current: _city),
     );
     if (chosen != null) await _switchCity(chosen);
   }
@@ -541,7 +530,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // около 40 точек, иначе на крупном зуме он закрывает полкарты.
     // Масштаб берём у самой карты: поле _zoom обновляется только по событию
     // остановки камеры и успевает отстать от того, что видно на экране.
-    final length = (_metersPerPixel * 34).clamp(2.0, 1200.0);
+    // Размер как у кружка «где я»: стрелка не должна закрывать квартал.
+    final length = (_metersPerPixel * 16).clamp(2.0, 1200.0);
     return [
       _destination(me, heading, length),
       _destination(me, heading - 148, length * 0.62),
@@ -566,9 +556,23 @@ class _HomeScreenState extends State<HomeScreen> {
     return LatLng(lat2 * 180 / math.pi, lon2 * 180 / math.pi);
   }
 
+  /// Сглаживание показаний компаса: датчик дёргается на градус-два даже
+  /// когда телефон лежит неподвижно, без этого стрелка трясётся.
+  double _smoothHeading(double raw) {
+    final previous = _heading;
+    if (previous == null) return raw;
+    var delta = (raw - previous + 540) % 360 - 180;
+    if (delta.abs() < 1.5) return previous;
+    var next = (previous + delta * 0.3 + 360) % 360;
+    if (next >= 360) next -= 360;
+    return next;
+  }
+
   Future<void> _updateTriangle(double heading, {bool force = false}) async {
     final drawn = _drawnHeading;
-    if (!force && (drawn == null || (heading - drawn).abs() < 6)) return;
+    var delta = drawn == null ? 180.0 : (heading - drawn).abs();
+    if (delta > 180) delta = 360 - delta;
+    if (!force && delta < 4) return;
     final me = _me;
     final controller = _map;
     if (me == null || controller == null || _triangleBusy) return;
@@ -1106,21 +1110,70 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _panel(List<Poi> visible, LatLng from) {
     final scheme = Theme.of(context).colorScheme;
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // Развёрнутая шторка занимает треть экрана; тянуть за ручку можно от
+    // узкой полосы до двух третей — как удобно на этом телефоне.
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 6),
+        if (_selected == null)
+          CategoryBar(
+            selected: _category,
+            onChanged: (value) {
+              setState(() {
+                _category = value;
+                _intentNote = null;
+                _answerTop = const [];
+                _answerCount = 0;
+              });
+              _redraw();
+            },
+          ),
+        const SizedBox(height: 6),
+        if (_selected != null)
+          PoiCard(
+            poi: _selected!,
+            meters: metersBetween(from, LatLng(_selected!.lat, _selected!.lon)),
+            onClose: _closeCard,
+            onRoute: () => _buildRoute(_selected!),
+            routing: _routing,
+            route: _routeFor == _selected!.id ? _route : null,
+            error: _routeError,
+            headingDeg: _heading,
+            bearingDeg: _me == null
+                ? null
+                : bearingBetween(_me!, LatLng(_selected!.lat, _selected!.lon)),
+          )
+        else ...[
+          if (_intentNote != null) _intentRow(scheme),
+          if (_answerTop.isNotEmpty) _answerCard(scheme, from),
+          _results(visible, from),
+        ],
+      ],
+    );
+
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, -6))],
+        boxShadow: const [
+          BoxShadow(color: Color(0x22000000), blurRadius: 24, offset: Offset(0, -6)),
+        ],
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _panelHandle(scheme),
+        child: SizedBox(
+          height: _panelCollapsed ? null : screenHeight * _sheetFraction,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _panelHandle(scheme, screenHeight),
               TextField(
                 controller: _search,
                 minLines: 1,
@@ -1183,43 +1236,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              if (!_panelCollapsed) ...[
-                const SizedBox(height: 6),
-                if (_selected == null)
-                CategoryBar(
-                  selected: _category,
-                  onChanged: (value) {
-                    setState(() {
-                      _category = value;
-                      _intentNote = null;
-                      _answerTop = const [];
-                      _answerCount = 0;
-                    });
-                    _redraw();
-                  },
-                ),
-                const SizedBox(height: 6),
-                if (_selected != null)
-                  PoiCard(
-                    poi: _selected!,
-                    meters: metersBetween(from, LatLng(_selected!.lat, _selected!.lon)),
-                    onClose: _closeCard,
-                    onRoute: () => _buildRoute(_selected!),
-                    routing: _routing,
-                    route: _routeFor == _selected!.id ? _route : null,
-                    error: _routeError,
-                    headingDeg: _heading,
-                    bearingDeg: _me == null
-                        ? null
-                        : bearingBetween(_me!, LatLng(_selected!.lat, _selected!.lon)),
-                  )
-                else ...[
-                  if (_intentNote != null) _intentRow(scheme),
-                  if (_answerTop.isNotEmpty) _answerCard(scheme, from),
-                  _results(visible, from),
-                ],
+                if (!_panelCollapsed)
+                  Expanded(child: SingleChildScrollView(child: content)),
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -1264,40 +1284,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _togglePanel() => setState(() => _panelCollapsed = !_panelCollapsed);
 
-  Widget _panelHandle(ColorScheme scheme) {
-    var drag = 0.0;
+  Widget _panelHandle(ColorScheme scheme, double screenHeight) {
     return GestureDetector(
-      // Тянуть можно в любую сторону: вверх — развернуть, вниз — свернуть.
-      onVerticalDragStart: (_) => drag = 0,
-      onVerticalDragUpdate: (details) => drag += details.delta.dy,
-      onVerticalDragEnd: (details) {
-        final velocity = details.primaryVelocity ?? 0;
-        final goUp = drag < -14 || velocity < -120;
-        final goDown = drag > 14 || velocity > 120;
-        if (goUp && _panelCollapsed) _togglePanel();
-        if (goDown && !_panelCollapsed) _togglePanel();
+      behavior: HitTestBehavior.opaque,
+      // Тянуть вверх — выше, вниз — ниже. Нажатие сворачивает до строки поиска.
+      onVerticalDragUpdate: (details) {
+        setState(() {
+          _panelCollapsed = false;
+          _sheetFraction = (_sheetFraction - details.delta.dy / screenHeight)
+              .clamp(0.16, 0.66);
+        });
       },
-      child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _togglePanel,
-        child: SizedBox(
-          height: 22,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 52,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: scheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+      onTap: _togglePanel,
+      child: SizedBox(
+        height: 22,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 52,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.outlineVariant,
+                borderRadius: BorderRadius.circular(2),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ),
       ),
     );
   }
