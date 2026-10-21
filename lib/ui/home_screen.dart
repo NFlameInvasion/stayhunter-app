@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show HttpClient;
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -95,10 +96,15 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _iconsReady = false;
   bool _triangleBusy = false;
 
+  /// Если плитки не пришли, показываем причину прямо на карте: без этого
+  /// пустое поле не отличить от медленной загрузки.
+  String? _tileProblem;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _checkTiles();
     _search.addListener(() => setState(() {}));
     try {
       _compass = FlutterCompass.events?.listen(
@@ -821,6 +827,27 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+          if (_tileProblem != null)
+            Positioned(
+              left: 12,
+              right: 64,
+              top: MediaQuery.paddingOf(context).top + 50,
+              child: GestureDetector(
+                onTap: _checkTiles,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFB42318),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${_tileProblem!} · нажми, чтобы проверить снова',
+                    maxLines: 3,
+                    style: const TextStyle(fontSize: 11, color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             right: 12,
             top: MediaQuery.paddingOf(context).top + 8,
@@ -999,6 +1026,34 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _checkTiles() async {
+    const url =
+        'https://tiles.83.220.175.52.nip.io/planet/20261018_080001_pt/10/618/327.pbf';
+    if (mounted) setState(() => _tileProblem = null);
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 12);
+      final request = await client
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 12));
+      final response = await request.close().timeout(const Duration(seconds: 12));
+      var received = 0;
+      await for (final chunk in response) {
+        received += chunk.length;
+      }
+      client.close();
+      if (!mounted) return;
+      setState(() {
+        _tileProblem = response.statusCode == 200 && received > 0
+            ? null
+            : 'плитки: ответ ${response.statusCode}, ${received}б';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _tileProblem = 'плитки: $error');
+    }
   }
 
   void _togglePanel() => setState(() => _panelCollapsed = !_panelCollapsed);
