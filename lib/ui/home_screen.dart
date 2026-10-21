@@ -500,7 +500,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Кого рисуем: на дальних масштабах близкие объекты налезают друг на друга,
   /// поэтому оставляем один значок на клетку экрана.
   List<Poi> _drawablePois(List<Poi> visible) {
-    if (_zoom >= 14.5) return visible.take(400).toList(growable: false);
+    if (_zoom >= 14.5) return visible.take(150).toList(growable: false);
 
     final drawn = <Poi>[];
     final cells = <String>{};
@@ -508,7 +508,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final cell = '${(_worldX(poi.lon) / 58).floor()}:'
           '${(_worldY(poi.lat) / 58).floor()}';
       if (cells.add(cell)) drawn.add(poi);
-      if (drawn.length >= 400) break;
+      if (drawn.length >= 150) break;
     }
     return drawn;
   }
@@ -953,8 +953,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (plan == null || !mounted) return;
-    _fitPoints(plan.points);
+    // Сначала рисуем линию, потом подводим камеру: линия появляется сразу,
+    // а не после того, как камера доедет до маршрута.
     await _redraw();
+    _fitPoints(plan.points);
   }
 
   // ------------------------------------------------------------------- вид
