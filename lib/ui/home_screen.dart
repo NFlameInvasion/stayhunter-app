@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 import 'package:speech_to_text/speech_recognition_result.dart';
@@ -1079,7 +1080,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1246,7 +1247,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: InkWell(
         onTap: _togglePanel,
         child: SizedBox(
-          height: 28,
+          height: 22,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1389,7 +1390,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 4),
         SizedBox(
-          height: _answerTop.isNotEmpty ? 96 : 130,
+          height: _answerTop.isNotEmpty ? 78 : 100,
           child: ListView.builder(
             itemCount: visible.length,
             itemBuilder: (context, index) {
