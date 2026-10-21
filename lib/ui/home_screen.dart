@@ -1088,18 +1088,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(width: 8),
-              // Отдельная кнопка: по ней попасть проще, чем по тонкой полоске.
-              IconButton(
-                tooltip: _panelCollapsed ? 'Развернуть поиск' : 'Свернуть поиск',
-                onPressed: _togglePanel,
-                iconSize: 26,
-                visualDensity: VisualDensity.compact,
-                icon: Icon(
-                  _panelCollapsed ? Icons.expand_less : Icons.expand_more,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
             ],
           ),
         ),

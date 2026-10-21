@@ -98,8 +98,10 @@ String buildVectorStyle({required bool dark}) {
         'id': 'fallback',
         'type': 'raster',
         'source': 'fallback',
+        // Пока проверяем, доходит ли вектор: растровая подложка скрыта.
         'paint': dark
             ? {
+                'raster-opacity': 0.0,
                 // Тот же приём, что в gamedark: границы яркости ПЕРЕВЁРНУТЫ,
                 // поэтому светлая картинка становится ночной.
                 'raster-saturation': -1.0,
@@ -108,6 +110,7 @@ String buildVectorStyle({required bool dark}) {
                 'raster-brightness-max': 0.06,
               }
             : {
+                'raster-opacity': 0.0,
                 'raster-saturation': 0.2,
                 'raster-contrast': 0.05,
               },
