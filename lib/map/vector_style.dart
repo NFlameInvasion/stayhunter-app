@@ -199,6 +199,31 @@ String buildVectorStyle({required bool dark}) {
         },
       },
       {
+        'id': 'road-labels',
+        'type': 'symbol',
+        'source': 'openmaptiles',
+        'source-layer': 'transportation_name',
+        'minzoom': 14,
+        'layout': {
+          'symbol-placement': 'line',
+          'text-field': ['get', 'name'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': [
+            'interpolate', ['linear'], ['zoom'],
+            14, 10,
+            18, 12,
+          ],
+          'text-letter-spacing': 0.04,
+          'text-max-angle': 30,
+        },
+        'paint': {
+          'text-color': p.label,
+          'text-opacity': dark ? 0.62 : 0.55,
+          'text-halo-color': p.labelHalo,
+          'text-halo-width': 1.0,
+        },
+      },
+      {
         'id': 'place-labels',
         'type': 'symbol',
         'source': 'openmaptiles',

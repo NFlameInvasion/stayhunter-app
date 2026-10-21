@@ -55,7 +55,7 @@ class PoiCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final color = poi.category.color;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),

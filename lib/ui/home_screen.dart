@@ -95,6 +95,8 @@ class _HomeScreenState extends State<HomeScreen> {
   ml.Fill? _meTriangle;
   bool _iconsReady = false;
   bool _triangleBusy = false;
+  bool _redrawing = false;
+  bool _redrawPending = false;
 
   /// Если плитки не пришли, показываем причину прямо на карте: без этого
   /// пустое поле не отличить от медленной загрузки.
@@ -292,6 +294,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _redraw() async {
     final controller = _map;
     if (controller == null) return;
+    // Один проход за раз: пока идёт отрисовка, камера успевает дёрнуться
+    // несколько раз, и повторная очистка съедала только что поставленные значки.
+    if (_redrawing) {
+      _redrawPending = true;
+      return;
+    }
+    _redrawing = true;
 
     await controller.clearCircles();
     await controller.clearSymbols();
@@ -405,6 +414,12 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (_) {
         // Треугольник появится при следующей перерисовке.
       }
+    }
+
+    _redrawing = false;
+    if (_redrawPending) {
+      _redrawPending = false;
+      await _redraw();
     }
   }
 
@@ -902,11 +917,6 @@ class _HomeScreenState extends State<HomeScreen> {
             right: 12,
             top: MediaQuery.paddingOf(context).top + 60,
             child: MapControls(
-              rotation: _rotation,
-              onNorth: () {
-                _map?.animateCamera(ml.CameraUpdate.bearingTo(0));
-                setState(() => _rotation = 0);
-              },
               onLocate: _locate,
               locating: _locating,
             ),
@@ -945,7 +955,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -961,12 +971,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   isDense: true,
                   hintText: 'Что найти?',
                   prefixIcon: const Padding(
-                    padding: EdgeInsets.only(left: 6),
-                    child: Icon(Icons.search, size: 20),
+                    padding: EdgeInsets.only(left: 2),
+                    child: Icon(Icons.search, size: 19),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
                   ),
                   suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
                   suffixIcon: Padding(
-                    padding: const EdgeInsets.only(right: 0),
+                    padding: const EdgeInsets.only(right: 6),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1013,7 +1027,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   filled: true,
                   fillColor: scheme.surfaceContainerHighest,
-                  contentPadding: const EdgeInsets.fromLTRB(4, 12, 0, 12),
+                  contentPadding: const EdgeInsets.fromLTRB(0, 10, 0, 10),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide.none,
@@ -1021,7 +1035,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               if (!_panelCollapsed) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
+                if (_selected == null)
                 CategoryBar(
                   selected: _category,
                   onChanged: (value) {
@@ -1034,7 +1049,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _redraw();
                   },
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 if (_selected != null)
                   PoiCard(
                     poi: _selected!,
@@ -1110,7 +1125,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: InkWell(
         onTap: _togglePanel,
         child: SizedBox(
-          height: 40,
+          height: 28,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
