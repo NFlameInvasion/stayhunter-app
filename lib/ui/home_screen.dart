@@ -1048,7 +1048,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _tileProblem = response.statusCode == 200 && received > 0
             ? null
-            : 'плитки: ответ ${response.statusCode}, ${received}б';
+            : 'плитки: ответ ${response.statusCode}, $received б';
       });
     } catch (error) {
       if (!mounted) return;
