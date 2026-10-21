@@ -842,7 +842,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
                   isDense: true,
-                  hintText: 'Что найти? Банк, обмен, аптека…',
+                  hintText: 'Что найти?',
                   prefixIcon: const Padding(
                     padding: EdgeInsets.only(left: 6),
                     child: Icon(Icons.search, size: 20),
@@ -936,35 +936,40 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _togglePanel() => setState(() => _panelCollapsed = !_panelCollapsed);
+
   Widget _panelHandle(ColorScheme scheme) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => setState(() => _panelCollapsed = !_panelCollapsed),
-      child: SizedBox(
-        height: 34,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 46,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _togglePanel,
+        child: SizedBox(
+          height: 40,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 52,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: scheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Container(
-              width: 34,
-              height: 34,
-              alignment: Alignment.center,
-              child: Icon(
-                _panelCollapsed ? Icons.expand_less : Icons.expand_more,
-                size: 22,
-                color: scheme.onSurfaceVariant,
+              const SizedBox(width: 8),
+              // Отдельная кнопка: по ней попасть проще, чем по тонкой полоске.
+              IconButton(
+                tooltip: _panelCollapsed ? 'Развернуть поиск' : 'Свернуть поиск',
+                onPressed: _togglePanel,
+                iconSize: 26,
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  _panelCollapsed ? Icons.expand_less : Icons.expand_more,
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

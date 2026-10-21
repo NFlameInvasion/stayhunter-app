@@ -68,9 +68,26 @@ String buildVectorStyle({required bool dark}) {
     'name': dark ? 'StayHunter Night' : 'StayHunter Day',
     'glyphs': 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
     'sources': {
+      // Явный список плиток вместо TileJSON: на телефоне лишний запрос к
+      // описанию источника — ещё одна точка, где карта может остаться пустой.
       'openmaptiles': {
         'type': 'vector',
-        'url': 'https://tiles.openfreemap.org/planet',
+        'tiles': [
+          'https://tiles.openfreemap.org/planet/20261018_080001_pt/{z}/{x}/{y}.pbf',
+        ],
+        'minzoom': 0,
+        'maxzoom': 14,
+      },
+      // Запасная подложка: если векторные плитки не дошли (сеть, VPN,
+      // блокировка), человек всё равно видит карту, а не пустое поле.
+      'fallback': {
+        'type': 'raster',
+        'tiles': [
+          dark
+              ? 'https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png'
+              : 'https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png',
+        ],
+        'tileSize': 256,
       },
     },
     'layers': <Map<String, dynamic>>[
@@ -78,6 +95,12 @@ String buildVectorStyle({required bool dark}) {
         'id': 'background',
         'type': 'background',
         'paint': {'background-color': p.earth},
+      },
+      {
+        'id': 'fallback',
+        'type': 'raster',
+        'source': 'fallback',
+        'paint': {'raster-opacity': 1},
       },
       {
         'id': 'water',
