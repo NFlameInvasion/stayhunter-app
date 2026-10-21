@@ -81,10 +81,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk stayhunter.apk
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk stayhunter-32.apk
+          VERSION="$(grep '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "StayHunter_${VERSION}.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "StayHunter_${VERSION}_32.apk"
+          # Постоянные имена — чтобы ссылка «latest» не менялась от выпуска к выпуску.
+          cp "StayHunter_${VERSION}.apk" stayhunter.apk
+          cp "StayHunter_${VERSION}_32.apk" stayhunter-32.apk
           if ! gh release view latest >/dev/null 2>&1; then
             gh release create latest --title "StayHunter — сборка" --notes "Автоматическая сборка из ветки main."
           fi
-          gh release upload latest stayhunter.apk stayhunter-32.apk --clobber
-          echo "https://github.com/${{ github.repository }}/releases/download/latest/stayhunter.apk"
+          gh release upload latest "StayHunter_${VERSION}.apk" "StayHunter_${VERSION}_32.apk" stayhunter.apk stayhunter-32.apk --clobber
+          echo "StayHunter_${VERSION}.apk"
