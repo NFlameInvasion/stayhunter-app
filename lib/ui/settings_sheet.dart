@@ -50,7 +50,9 @@ Future<void> showSettingsSheet(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('StayHunter'),
                 subtitle: Text(
-                  'Версия $appVersion',
+                  // Показываем только номер выпуска: «+25» — служебный номер
+                  // сборки для Android, человеку он ничего не говорит.
+                  'Версия ${appVersion.split('+').first}',
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ),
