@@ -95,7 +95,6 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Значки на карте: по номеру значка понимаем, по какому объекту тапнули.
   final Map<String, Poi> _symbolPois = {};
 
-  ml.Fill? _meTriangle;
   bool _iconsReady = false;
   bool _triangleBusy = false;
   bool _redrawing = false;
@@ -333,6 +332,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _redrawInner(ml.MapLibreMapController controller) async {
+    // Высоту экрана читаем до ожиданий: после них context уже может быть не тот.
+    final screenHeight = MediaQuery.of(context).size.height;
     final visible = _visible;
     final drawn = _drawablePois(visible);
 
@@ -350,7 +351,6 @@ class _HomeScreenState extends State<HomeScreen> {
     await controller.clearLines();
     await controller.clearFills();
     _symbolPois.clear();
-    _meTriangle = null;
 
     if (!_iconsReady) {
       for (final category in PoiCategory.values) {
@@ -447,7 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // от того, успело ли поле масштаба обновиться после жеста.
     try {
       final region = await controller.getVisibleRegion();
-      final height = MediaQuery.of(context).size.height;
+      final height = screenHeight;
       final north = region.northeast.latitude;
       final south = region.southwest.latitude;
       if (height > 0 && north > south) {
@@ -470,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       try {
         final heading = _heading ?? 0;
-        _meTriangle = await controller.addFill(
+        await controller.addFill(
           ml.FillOptions(
             geometry: [_trianglePoints(me, heading)
                 .map((point) => ml.LatLng(point.latitude, point.longitude))
@@ -579,7 +579,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Убираем все прежние треугольники: иначе при каждом повороте или
       // смене масштаба на карте остаётся ещё один, и они слипаются в кляксу.
       await controller.clearFills();
-      _meTriangle = await controller.addFill(
+      await controller.addFill(
         ml.FillOptions(
           geometry: [_trianglePoints(me, heading)
                 .map((point) => ml.LatLng(point.latitude, point.longitude))
