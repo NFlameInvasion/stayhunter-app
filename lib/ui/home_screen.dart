@@ -312,7 +312,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final visible = _visible;
-    for (final poi in visible.take(400)) {
+    // На дальних масштабах близкие объекты налезают друг на друга: оставляем
+    // один значок на клетку экрана, а при приближении показываем все.
+    final drawn = <Poi>[];
+    final cells = <String>{};
+    for (final poi in visible) {
+      if (_zoom >= 14.5) {
+        drawn.add(poi);
+      } else {
+        final cell = '${(_worldX(poi.lon) / 58).floor()}:'
+            '${(_worldY(poi.lat) / 58).floor()}';
+        if (cells.add(cell)) drawn.add(poi);
+      }
+      if (drawn.length >= 400) break;
+    }
+
+    for (final poi in drawn) {
       final isSelected = _selected?.id == poi.id;
       try {
         final symbol = await controller.addSymbol(
@@ -411,6 +426,16 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     return labelled;
+  }
+
+  double _worldX(double lon) =>
+      (lon + 180) / 360 * 256 * math.pow(2, _zoom).toDouble();
+
+  double _worldY(double lat) {
+    final s = math.sin(lat * math.pi / 180);
+    return (0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)) *
+        256 *
+        math.pow(2, _zoom).toDouble();
   }
 
   /// Треугольник направления: три точки вокруг своего места, повёрнутые
@@ -961,13 +986,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: _listening ? 'Остановить' : 'Сказать голосом',
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 26, height: 32),
+                          constraints: const BoxConstraints.tightFor(width: 28, height: 32),
                           style: IconButton.styleFrom(
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                           icon: Icon(
                             _listening ? Icons.mic : Icons.mic_none,
-                            size: 20,
+                            size: 18,
                             color: _listening ? const Color(0xFFB42318) : null,
                           ),
                           onPressed: _toggleVoice,
@@ -976,11 +1001,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: 'Найти',
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 28, height: 32),
+                          constraints: const BoxConstraints.tightFor(width: 30, height: 32),
                           style: IconButton.styleFrom(
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
-                          icon: const Icon(Icons.arrow_forward, size: 20),
+                          icon: const Icon(Icons.arrow_forward, size: 19),
                           onPressed: _submitSearch,
                         ),
                       ],
