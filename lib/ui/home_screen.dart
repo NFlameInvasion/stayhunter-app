@@ -527,7 +527,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final metersPerPixel = 156543.03392 *
         math.cos(me.latitude * math.pi / 180) /
         math.pow(2, zoom).toDouble();
-    final length = (metersPerPixel * 44).clamp(2.0, 1500.0);
+    final length = (metersPerPixel * 34).clamp(2.0, 1200.0);
     return [
       _destination(me, heading, length),
       _destination(me, heading - 148, length * 0.62),
@@ -562,8 +562,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _triangleBusy = true;
     _drawnHeading = heading;
     try {
-      final old = _meTriangle;
-      if (old != null) await controller.removeFill(old);
+      // Убираем все прежние треугольники: иначе при каждом повороте или
+      // смене масштаба на карте остаётся ещё один, и они слипаются в кляксу.
+      await controller.clearFills();
       _meTriangle = await controller.addFill(
         ml.FillOptions(
           geometry: [_trianglePoints(me, heading)
