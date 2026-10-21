@@ -88,11 +88,12 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _voiceStarted;
   static const _voiceMax = Duration(minutes: 2);
 
-  /// Круги на карте: их номера нужны, чтобы понять, по какому объекту тапнули.
-  final Map<String, Poi> _circlePois = {};
+  /// Значки на карте: по номеру значка понимаем, по какому объекту тапнули.
+  final Map<String, Poi> _symbolPois = {};
 
   ml.Symbol? _meArrow;
   bool _arrowImageReady = false;
+  bool _iconsReady = false;
 
   @override
   void initState() {
@@ -221,8 +222,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onMapCreated(ml.MapLibreMapController controller) {
     _map = controller;
-    controller.onCircleTapped.add((circle) {
-      final poi = _circlePois[circle.id];
+    controller.onSymbolTapped.add((symbol) {
+      final poi = _symbolPois[symbol.id];
       if (poi != null) _select(poi);
     });
     _redraw();
@@ -230,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _onStyleLoaded() async {
     _arrowImageReady = false;
+    _iconsReady = false;
     await _redraw();
   }
 
@@ -289,8 +291,19 @@ class _HomeScreenState extends State<HomeScreen> {
     await controller.clearCircles();
     await controller.clearSymbols();
     await controller.clearLines();
-    _circlePois.clear();
+    _symbolPois.clear();
     _meArrow = null;
+
+    if (!_iconsReady) {
+      for (final category in PoiCategory.values) {
+        try {
+          await controller.addImage('ic-${category.key}', await _iconPng(category));
+        } catch (_) {
+          // Без значка категория останется точкой — не критично.
+        }
+      }
+      _iconsReady = true;
+    }
 
     if (!_arrowImageReady) {
       try {
@@ -305,16 +318,14 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final poi in visible.take(400)) {
       final isSelected = _selected?.id == poi.id;
       try {
-        final circle = await controller.addCircle(
-          ml.CircleOptions(
+        final symbol = await controller.addSymbol(
+          ml.SymbolOptions(
             geometry: ml.LatLng(poi.lat, poi.lon),
-            circleRadius: isSelected ? 9 : 6,
-            circleColor: _hex(poi.category.color),
-            circleStrokeColor: '#ffffff',
-            circleStrokeWidth: 2,
+            iconImage: 'ic-${poi.category.key}',
+            iconSize: isSelected ? 0.62 : 0.46,
           ),
         );
-        _circlePois[circle.id] = poi;
+        _symbolPois[symbol.id] = poi;
       } catch (_) {
         break;
       }
@@ -414,6 +425,44 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Значок категории в PNG: цветной круг с белой иконкой, как было раньше.
+  Future<Uint8List> _iconPng(PoiCategory category) async {
+    const size = 96.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
+
+    canvas.drawCircle(const Offset(48, 48), 39, Paint()..color = category.color);
+    canvas.drawCircle(
+      const Offset(48, 48),
+      39,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 8,
+    );
+
+    final painter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(category.icon.codePoint),
+        style: TextStyle(
+          fontFamily: category.icon.fontFamily,
+          package: category.icon.fontPackage,
+          fontSize: 44,
+          color: Colors.white,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      Offset((size - painter.width) / 2, (size - painter.height) / 2),
+    );
+
+    final image = await recorder.endRecording().toImage(96, 96);
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    return data!.buffer.asUint8List();
+  }
+
   /// Синяя стрелка в PNG: MapLibre рисует иконки, а не виджеты.
   Future<Uint8List> _arrowPng() async {
     const size = 64.0;
@@ -430,11 +479,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final image = await recorder.endRecording().toImage(64, 64);
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     return data!.buffer.asUint8List();
-  }
-
-  String _hex(Color color) {
-    final value = color.toARGB32() & 0xFFFFFF;
-    return '#${value.toRadixString(16).padLeft(6, '0')}';
   }
 
   // ------------------------------------------------------------------ поиск
