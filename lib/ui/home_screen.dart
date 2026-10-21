@@ -841,7 +841,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    '${_tileProblem!} · нажми, чтобы проверить снова',
+                    '${_tileProblem ?? ''} · нажми, чтобы проверить снова',
                     maxLines: 3,
                     style: const TextStyle(fontSize: 11, color: Colors.white),
                   ),
