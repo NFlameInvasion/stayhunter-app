@@ -950,7 +950,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             tooltip: 'Очистить поле',
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(width: 28, height: 32),
+                            constraints: const BoxConstraints.tightFor(width: 24, height: 32),
+                            style: IconButton.styleFrom(
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
                             icon: const Icon(Icons.close, size: 18),
                             onPressed: _clearSearch,
                           ),
@@ -958,7 +961,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: _listening ? 'Остановить' : 'Сказать голосом',
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 30, height: 32),
+                          constraints: const BoxConstraints.tightFor(width: 26, height: 32),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           icon: Icon(
                             _listening ? Icons.mic : Icons.mic_none,
                             size: 20,
@@ -970,7 +976,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: 'Найти',
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                          constraints: const BoxConstraints.tightFor(width: 28, height: 32),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           icon: const Icon(Icons.arrow_forward, size: 20),
                           onPressed: _submitSearch,
                         ),
@@ -979,7 +988,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   filled: true,
                   fillColor: scheme.surfaceContainerHighest,
-                  contentPadding: const EdgeInsets.fromLTRB(4, 12, 2, 12),
+                  contentPadding: const EdgeInsets.fromLTRB(4, 12, 0, 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide.none,
