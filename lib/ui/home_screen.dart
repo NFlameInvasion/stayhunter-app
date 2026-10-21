@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show HttpClient;
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -6,8 +7,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
-
-import 'settings_sheet.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
@@ -24,6 +23,7 @@ import '../geo/route.dart';
 import '../map/vector_style.dart';
 import '../search/query_intent.dart';
 import '../theme/app_theme.dart';
+import 'settings_sheet.dart';
 import 'category_bar.dart';
 import 'map_controls.dart';
 import 'poi_card.dart';
@@ -103,6 +103,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Если плитки не пришли, показываем причину прямо на карте: без этого
   /// пустое поле не отличить от медленной загрузки.
   String? _tileProblem;
+
+  /// Место, найденное по названию: не объект из списка, а точка на карте.
+  LatLng? _landmark;
+  String? _landmarkName;
 
   @override
   void initState() {
@@ -388,6 +392,35 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    final landmark = _landmark;
+    if (landmark != null) {
+      try {
+        await controller.addCircle(
+          ml.CircleOptions(
+            geometry: ml.LatLng(landmark.latitude, landmark.longitude),
+            circleRadius: 9,
+            circleColor: '#B42318',
+            circleStrokeColor: '#ffffff',
+            circleStrokeWidth: 3,
+          ),
+        );
+        await controller.addSymbol(
+          ml.SymbolOptions(
+            geometry: ml.LatLng(landmark.latitude, landmark.longitude),
+            textField: _landmarkName ?? 'Место',
+            textSize: 12,
+            textColor: widget.isDark ? '#e6edf7' : '#101828',
+            textHaloColor: widget.isDark ? '#0b0f14' : '#ffffff',
+            textHaloWidth: 1.4,
+            textOffset: const Offset(0, 1.6),
+            textAnchor: 'top',
+          ),
+        );
+      } catch (_) {
+        // Точка появится при следующей перерисовке.
+      }
+    }
+
     if (_route != null) {
       try {
         await controller.addLine(
@@ -468,7 +501,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Треугольник направления: три точки вокруг своего места, повёрнутые
   /// по компасу. Рисунок целиком в наших руках, поэтому его видно всегда.
   List<LatLng> _trianglePoints(LatLng me, double heading) {
-    const length = 95.0;
+    // Длина в метрах считается от масштаба: на экране треугольник всегда
+    // около 40 точек, иначе на крупном зуме он закрывает полкарты.
+    final metersPerPixel =
+        156543.03392 * math.cos(me.latitude * math.pi / 180) /
+            math.pow(2, _zoom).toDouble();
+    final length = (metersPerPixel * 44).clamp(4.0, 4000.0);
     return [
       _destination(me, heading, length),
       _destination(me, heading - 148, length * 0.62),
@@ -620,6 +658,40 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
     _showAnswer(_visible);
+    // Среди объектов такого может не быть — тогда ищем место по названию.
+    if (_visible.isEmpty && text.length > 2) _geocode(text);
+  }
+
+  /// Поиск места по названию (Красная площадь, аэропорт): свои данные
+  /// знают только объекты, а название улицы или площади — нет.
+  Future<void> _geocode(String query) async {
+    final uri = Uri.parse(
+      'https://tiles.83.220.175.52.nip.io/geocode/search'
+      '?q=${Uri.encodeQueryComponent(query)}'
+      '&format=json&limit=1&accept-language=ru',
+    );
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return;
+      final list = jsonDecode(response.body) as List<dynamic>;
+      if (list.isEmpty) return;
+      final first = list.first as Map<String, dynamic>;
+      final lat = double.tryParse('${first['lat']}');
+      final lon = double.tryParse('${first['lon']}');
+      if (lat == null || lon == null || !mounted) return;
+      final name = '${first['display_name']}'.split(',').first.trim();
+      setState(() {
+        _landmark = LatLng(lat, lon);
+        _landmarkName = name;
+        _intentNote = 'Нашёл на карте: $name';
+        _answerTop = const [];
+        _answerCount = 0;
+      });
+      _moveCamera(lat, lon, 16.5);
+      await _redraw();
+    } catch (_) {
+      // Не нашли — останется «Ничего не найдено», это честно.
+    }
   }
 
   void _showAnswer(List<Poi> found) {
@@ -916,7 +988,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           Positioned(
             right: 12,
-            top: MediaQuery.paddingOf(context).top + 8,
+            top: MediaQuery.paddingOf(context).top + 56,
             child: Tooltip(
               message: widget.isDark ? 'Светлая тема' : 'Тёмная тема',
               child: Material(
@@ -941,7 +1013,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Positioned(
             right: 12,
-            top: MediaQuery.paddingOf(context).top + 56,
+            top: MediaQuery.paddingOf(context).top + 8,
             child: Tooltip(
               message: 'Настройки',
               child: Material(
