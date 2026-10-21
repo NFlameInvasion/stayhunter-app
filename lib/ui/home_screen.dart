@@ -448,8 +448,10 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final region = await controller.getVisibleRegion();
       final height = MediaQuery.of(context).size.height;
-      if (height > 0 && region.north > region.south) {
-        _metersPerPixel = (region.north - region.south) * 111320 / height;
+      final north = region.northeast.latitude;
+      final south = region.southwest.latitude;
+      if (height > 0 && north > south) {
+        _metersPerPixel = (north - south) * 111320 / height;
       }
     } catch (_) {
       // Оставим прежнее значение — треугольник просто будет чуть другого размера.
