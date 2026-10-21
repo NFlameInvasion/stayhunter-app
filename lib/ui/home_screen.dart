@@ -301,6 +301,21 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     _redrawing = true;
+    try {
+      await _redrawInner(controller);
+    } catch (_) {
+      // Сбой отрисовки не должен запирать карту: иначе значки и маршрут
+      // перестают появляться до перезапуска приложения.
+    } finally {
+      _redrawing = false;
+      if (_redrawPending) {
+        _redrawPending = false;
+        await _redraw();
+      }
+    }
+  }
+
+  Future<void> _redrawInner(ml.MapLibreMapController controller) async {
 
     await controller.clearCircles();
     await controller.clearSymbols();
@@ -416,11 +431,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    _redrawing = false;
-    if (_redrawPending) {
-      _redrawPending = false;
-      await _redraw();
-    }
   }
 
   /// Кого подписываем: выбранный, три из ответа и ближайшие на крупном зуме.
@@ -770,15 +780,27 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 15),
-        ),
-      );
+      // Сначала точное место, но не ждём его дольше 12 секунд: в помещении
+      // спутники не отвечают, и человек должен увидеть хотя бы прошлую точку.
+      LatLng? me;
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 12),
+          ),
+        );
+        me = LatLng(position.latitude, position.longitude);
+      } catch (_) {
+        final last = await Geolocator.getLastKnownPosition();
+        if (last != null) me = LatLng(last.latitude, last.longitude);
+      }
+      if (me == null) {
+        _showNote('Место не определено: включи GPS и выйди на открытое место');
+        return;
+      }
       if (!mounted) return;
-      final me = LatLng(position.latitude, position.longitude);
-      setState(() => _me = me);
+      setState(() => _me = me!);
       _moveCamera(me.latitude, me.longitude, 16.2);
       await _redraw();
     } catch (_) {
@@ -844,6 +866,8 @@ class _HomeScreenState extends State<HomeScreen> {
             trackCameraPosition: true,
             rotateGesturesEnabled: true,
             tiltGesturesEnabled: false,
+            // Встроенный компас мигал поверх карты; север показывает наша кнопка.
+            compassEnabled: false,
             onMapClick: (_, __) => _closeCard(),
           ),
           Positioned(
@@ -917,6 +941,11 @@ class _HomeScreenState extends State<HomeScreen> {
             right: 12,
             top: MediaQuery.paddingOf(context).top + 60,
             child: MapControls(
+              rotation: _rotation,
+              onNorth: () {
+                _map?.animateCamera(ml.CameraUpdate.bearingTo(0));
+                setState(() => _rotation = 0);
+              },
               onLocate: _locate,
               locating: _locating,
             ),
@@ -1011,6 +1040,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           onPressed: _toggleVoice,
                         ),
+                        const SizedBox(width: 4),
                         IconButton(
                           tooltip: 'Найти',
                           visualDensity: VisualDensity.compact,
@@ -1268,7 +1298,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 4),
         SizedBox(
-          height: _answerTop.isNotEmpty ? 118 : 168,
+          height: _answerTop.isNotEmpty ? 96 : 130,
           child: ListView.builder(
             itemCount: visible.length,
             itemBuilder: (context, index) {

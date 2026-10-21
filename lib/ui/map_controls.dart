@@ -1,15 +1,22 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// Кнопка поверх карты: «покажи меня».
+/// Кнопки поверх карты: компас (где север) и «покажи меня».
 class MapControls extends StatelessWidget {
   const MapControls({
     super.key,
+    required this.rotation,
+    required this.onNorth,
     required this.onLocate,
     required this.locating,
   });
 
+  /// Поворот карты в градусах: 0 — север сверху.
+  final double rotation;
+  final VoidCallback onNorth;
   final VoidCallback onLocate;
   final bool locating;
 
@@ -18,6 +25,15 @@ class MapControls extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        _RoundButton(
+          tooltip: 'Повернуть на север',
+          onTap: onNorth,
+          child: Transform.rotate(
+            angle: -rotation * math.pi / 180,
+            child: const Icon(Icons.navigation, size: 22, color: accent),
+          ),
+        ),
+        const SizedBox(height: 8),
         _RoundButton(
           tooltip: 'Где я',
           onTap: onLocate,
