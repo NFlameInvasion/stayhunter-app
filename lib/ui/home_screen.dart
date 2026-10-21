@@ -91,9 +91,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Значки на карте: по номеру значка понимаем, по какому объекту тапнули.
   final Map<String, Poi> _symbolPois = {};
 
-  ml.Symbol? _meArrow;
-  bool _arrowImageReady = false;
+  ml.Fill? _meTriangle;
   bool _iconsReady = false;
+  bool _triangleBusy = false;
 
   @override
   void initState() {
@@ -106,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final heading = event.heading;
           if (heading == null || !mounted) return;
           setState(() => _heading = heading);
-          _updateArrow(heading);
+          _updateTriangle(heading);
         },
         onError: (_) {},
       );
@@ -120,7 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isDark != widget.isDark) {
       // Стиль меняется целиком: аннотации после этого рисуются заново.
-      _arrowImageReady = false;
+      _iconsReady = false;
       _map?.setStyle(buildVectorStyle(dark: widget.isDark));
     }
   }
@@ -230,7 +230,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _onStyleLoaded() async {
-    _arrowImageReady = false;
     _iconsReady = false;
     await _redraw();
   }
@@ -291,8 +290,9 @@ class _HomeScreenState extends State<HomeScreen> {
     await controller.clearCircles();
     await controller.clearSymbols();
     await controller.clearLines();
+    await controller.clearFills();
     _symbolPois.clear();
-    _meArrow = null;
+    _meTriangle = null;
 
     if (!_iconsReady) {
       for (final category in PoiCategory.values) {
@@ -305,15 +305,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _iconsReady = true;
     }
 
-    if (!_arrowImageReady) {
-      try {
-        await controller.addImage('me-arrow', await _arrowPng());
-        _arrowImageReady = true;
-      } catch (_) {
-        // Без картинки останется просто точка — не беда.
-      }
-    }
-
     final visible = _visible;
     for (final poi in visible.take(400)) {
       final isSelected = _selected?.id == poi.id;
@@ -322,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ml.SymbolOptions(
             geometry: ml.LatLng(poi.lat, poi.lon),
             iconImage: 'ic-${poi.category.key}',
-            iconSize: isSelected ? 0.62 : 0.46,
+            iconSize: isSelected ? 0.85 : 0.62,
           ),
         );
         _symbolPois[symbol.id] = poi;
@@ -378,17 +369,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
       try {
-        _meArrow = await controller.addSymbol(
-          ml.SymbolOptions(
-            geometry: ml.LatLng(me.latitude, me.longitude),
-            iconImage: 'me-arrow',
-            iconSize: 0.5,
-            iconRotate: (_heading ?? 0) - _rotation,
+        final heading = _heading ?? 0;
+        _meTriangle = await controller.addFill(
+          ml.FillOptions(
+            geometry: _trianglePoints(me, heading),
+            fillColor: '#1d4ed8',
+            fillOutlineColor: '#ffffff',
+            fillOpacity: 0.95,
           ),
         );
-        _drawnHeading = _heading;
+        _drawnHeading = heading;
       } catch (_) {
-        // Стрелка появится, когда картинка зарегистрируется.
+        // Треугольник появится при следующей перерисовке.
       }
     }
   }
@@ -413,16 +405,59 @@ class _HomeScreenState extends State<HomeScreen> {
     return labelled;
   }
 
-  void _updateArrow(double heading) {
-    final arrow = _meArrow;
+  /// Треугольник направления: три точки вокруг своего места, повёрнутые
+  /// по компасу. Рисунок целиком в наших руках, поэтому его видно всегда.
+  List<LatLng> _trianglePoints(LatLng me, double heading) {
+    const length = 95.0;
+    return [
+      _destination(me, heading, length),
+      _destination(me, heading - 148, length * 0.62),
+      _destination(me, heading + 148, length * 0.62),
+    ];
+  }
+
+  LatLng _destination(LatLng from, double bearingDeg, double meters) {
+    const earthRadius = 6378137.0;
+    final bearing = bearingDeg * math.pi / 180;
+    final lat1 = from.latitude * math.pi / 180;
+    final lon1 = from.longitude * math.pi / 180;
+    final angular = meters / earthRadius;
+
+    final lat2 = math.asin(math.sin(lat1) * math.cos(angular) +
+        math.cos(lat1) * math.sin(angular) * math.cos(bearing));
+    final lon2 = lon1 +
+        math.atan2(
+          math.sin(bearing) * math.sin(angular) * math.cos(lat1),
+          math.cos(angular) - math.sin(lat1) * math.sin(lat2),
+        );
+    return LatLng(lat2 * 180 / math.pi, lon2 * 180 / math.pi);
+  }
+
+  Future<void> _updateTriangle(double heading) async {
     final drawn = _drawnHeading;
-    if (arrow == null || drawn == null) return;
-    if ((heading - drawn).abs() < 4) return;
+    if (drawn == null || (heading - drawn).abs() < 6) return;
+    final me = _me;
+    final controller = _map;
+    if (me == null || controller == null || _triangleBusy) return;
+
+    _triangleBusy = true;
     _drawnHeading = heading;
-    _map?.updateSymbol(
-      arrow,
-      ml.SymbolOptions(iconRotate: heading - _rotation),
-    );
+    try {
+      final old = _meTriangle;
+      if (old != null) await controller.removeFill(old);
+      _meTriangle = await controller.addFill(
+        ml.FillOptions(
+          geometry: _trianglePoints(me, heading),
+          fillColor: '#1d4ed8',
+          fillOutlineColor: '#ffffff',
+          fillOpacity: 0.95,
+        ),
+      );
+    } catch (_) {
+      // Перерисуется в следующем обновлении компаса.
+    } finally {
+      _triangleBusy = false;
+    }
   }
 
   /// Значок категории в PNG: цветной круг с белой иконкой, как было раньше.
@@ -459,24 +494,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     final image = await recorder.endRecording().toImage(96, 96);
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    return data!.buffer.asUint8List();
-  }
-
-  /// Синяя стрелка в PNG: MapLibre рисует иконки, а не виджеты.
-  Future<Uint8List> _arrowPng() async {
-    const size = 64.0;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
-    final paint = Paint()..color = const Color(0xFF1D4ED8);
-    final path = ui.Path()
-      ..moveTo(32, 2)
-      ..lineTo(58, 58)
-      ..lineTo(32, 44)
-      ..lineTo(6, 58)
-      ..close();
-    canvas.drawPath(path, paint);
-    final image = await recorder.endRecording().toImage(64, 64);
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     return data!.buffer.asUint8List();
   }
@@ -893,7 +910,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
                   suffixIcon: Padding(
-                    padding: const EdgeInsets.only(right: 4),
+                    padding: const EdgeInsets.only(right: 0),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -902,7 +919,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             tooltip: 'Очистить поле',
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(width: 30, height: 34),
+                            constraints: const BoxConstraints.tightFor(width: 28, height: 32),
                             icon: const Icon(Icons.close, size: 18),
                             onPressed: _clearSearch,
                           ),
@@ -910,7 +927,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: _listening ? 'Остановить' : 'Сказать голосом',
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                          constraints: const BoxConstraints.tightFor(width: 30, height: 32),
                           icon: Icon(
                             _listening ? Icons.mic : Icons.mic_none,
                             size: 20,
@@ -922,7 +939,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: 'Найти',
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
                           icon: const Icon(Icons.arrow_forward, size: 20),
                           onPressed: _submitSearch,
                         ),
@@ -931,7 +948,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   filled: true,
                   fillColor: scheme.surfaceContainerHighest,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  contentPadding: const EdgeInsets.fromLTRB(4, 12, 2, 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide.none,
@@ -983,7 +1000,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void _togglePanel() => setState(() => _panelCollapsed = !_panelCollapsed);
 
   Widget _panelHandle(ColorScheme scheme) {
-    return Material(
+    var drag = 0.0;
+    return GestureDetector(
+      // Тянуть можно в любую сторону: вверх — развернуть, вниз — свернуть.
+      onVerticalDragStart: (_) => drag = 0,
+      onVerticalDragUpdate: (details) => drag += details.delta.dy,
+      onVerticalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        final goUp = drag < -14 || velocity < -120;
+        final goDown = drag > 14 || velocity > 120;
+        if (goUp && _panelCollapsed) _togglePanel();
+        if (goDown && !_panelCollapsed) _togglePanel();
+      },
+      child: Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _togglePanel,
@@ -1015,6 +1044,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

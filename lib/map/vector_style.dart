@@ -66,14 +66,16 @@ String buildVectorStyle({required bool dark}) {
   final style = <String, dynamic>{
     'version': 8,
     'name': dark ? 'StayHunter Night' : 'StayHunter Day',
-    'glyphs': 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+    // Свои адреса: тайлы и шрифты идут через наш сервер, чтобы карта не
+    // зависела от чужого CDN и открывалась с российских сетей и VPN.
+    'glyphs': 'https://tiles.83.220.175.52.nip.io/fonts/{fontstack}/{range}.pbf',
     'sources': {
       // Явный список плиток вместо TileJSON: на телефоне лишний запрос к
       // описанию источника — ещё одна точка, где карта может остаться пустой.
       'openmaptiles': {
         'type': 'vector',
         'tiles': [
-          'https://tiles.openfreemap.org/planet/20261018_080001_pt/{z}/{x}/{y}.pbf',
+          'https://tiles.83.220.175.52.nip.io/planet/20261018_080001_pt/{z}/{x}/{y}.pbf',
         ],
         'minzoom': 0,
         'maxzoom': 14,
@@ -82,11 +84,7 @@ String buildVectorStyle({required bool dark}) {
       // блокировка), человек всё равно видит карту, а не пустое поле.
       'fallback': {
         'type': 'raster',
-        'tiles': [
-          dark
-              ? 'https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png'
-              : 'https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png',
-        ],
+        'tiles': ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
         'tileSize': 256,
       },
     },
@@ -100,7 +98,19 @@ String buildVectorStyle({required bool dark}) {
         'id': 'fallback',
         'type': 'raster',
         'source': 'fallback',
-        'paint': {'raster-opacity': 1},
+        'paint': dark
+            ? {
+                // Тот же приём, что в gamedark: границы яркости ПЕРЕВЁРНУТЫ,
+                // поэтому светлая картинка становится ночной.
+                'raster-saturation': -1.0,
+                'raster-contrast': 0.1,
+                'raster-brightness-min': 0.45,
+                'raster-brightness-max': 0.06,
+              }
+            : {
+                'raster-saturation': 0.2,
+                'raster-contrast': 0.05,
+              },
       },
       {
         'id': 'water',
