@@ -54,9 +54,10 @@ void main() {
     });
 
     test('минуты пешком округляются вверх', () {
-      expect(walkMinutes(80), '1 мин');
-      expect(walkMinutes(81), '2 мин');
-      expect(walkMinutes(340), '5 мин');
+      // 4 км/ч — около 67 метров в минуту.
+      expect(walkMinutes(60), '1 мин');
+      expect(walkMinutes(140), '3 мин');
+      expect(walkMinutes(13000), '3 ч 15 мин');
     });
   });
 
