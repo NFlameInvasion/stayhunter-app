@@ -282,6 +282,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _moveCamera(points.first.latitude, points.first.longitude, 16);
       return;
     }
+    // Отступ снизу — по высоте шторки: иначе конец маршрута прячется за ней.
+    final sheet = MediaQuery.of(context).size.height *
+            (_panelCollapsed ? 0.14 : _sheetFraction) +
+        30;
     _map?.animateCamera(
       ml.CameraUpdate.newLatLngBounds(
         ml.LatLngBounds(
@@ -289,9 +293,9 @@ class _HomeScreenState extends State<HomeScreen> {
           northeast: ml.LatLng(north, east),
         ),
         left: 50,
-        top: 120,
+        top: 110,
         right: 50,
-        bottom: 340,
+        bottom: sheet,
       ),
     );
   }
