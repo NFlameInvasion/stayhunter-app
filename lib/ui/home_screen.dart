@@ -102,6 +102,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _redrawPending = false;
   String _lastSignature = '';
 
+  /// Сколько метров в одной точке экрана по последнему известному виду карты.
+  /// По этому числу задаётся размер треугольника направления.
+  double _metersPerPixel = 20;
+
   /// Если плитки не пришли, показываем причину прямо на карте: без этого
   /// пустое поле не отличить от медленной загрузки.
   String? _tileProblem;
@@ -439,6 +443,18 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    // Масштаб берём из видимой области: это единственный способ не зависеть
+    // от того, успело ли поле масштаба обновиться после жеста.
+    try {
+      final region = await controller.getVisibleRegion();
+      final height = MediaQuery.of(context).size.height;
+      if (height > 0 && region.north > region.south) {
+        _metersPerPixel = (region.north - region.south) * 111320 / height;
+      }
+    } catch (_) {
+      // Оставим прежнее значение — треугольник просто будет чуть другого размера.
+    }
+
     final me = _me;
     if (me != null) {
       await controller.addCircle(
@@ -523,11 +539,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // около 40 точек, иначе на крупном зуме он закрывает полкарты.
     // Масштаб берём у самой карты: поле _zoom обновляется только по событию
     // остановки камеры и успевает отстать от того, что видно на экране.
-    final zoom = _map?.cameraPosition?.zoom ?? _zoom;
-    final metersPerPixel = 156543.03392 *
-        math.cos(me.latitude * math.pi / 180) /
-        math.pow(2, zoom).toDouble();
-    final length = (metersPerPixel * 34).clamp(2.0, 1200.0);
+    final length = (_metersPerPixel * 34).clamp(2.0, 1200.0);
     return [
       _destination(me, heading, length),
       _destination(me, heading - 148, length * 0.62),
