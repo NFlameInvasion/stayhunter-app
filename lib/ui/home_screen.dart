@@ -6,6 +6,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+
+import 'settings_sheet.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
@@ -939,7 +941,28 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Positioned(
             right: 12,
-            top: MediaQuery.paddingOf(context).top + 60,
+            top: MediaQuery.paddingOf(context).top + 56,
+            child: Tooltip(
+              message: 'Настройки',
+              child: Material(
+                color: scheme.surface,
+                shape: const CircleBorder(),
+                elevation: 3,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _openSettings,
+                  child: const SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Icon(Icons.settings, size: 20),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: MediaQuery.paddingOf(context).top + 108,
             child: MapControls(
               rotation: _rotation,
               onNorth: () {
@@ -1121,6 +1144,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() => _tileProblem = 'плитки: $error');
     }
+  }
+
+  Future<void> _openSettings() async {
+    await showSettingsSheet(
+      context,
+      isDark: widget.isDark,
+      onToggleTheme: widget.onToggleTheme,
+    );
   }
 
   void _togglePanel() => setState(() => _panelCollapsed = !_panelCollapsed);

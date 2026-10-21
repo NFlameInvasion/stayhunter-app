@@ -67,7 +67,10 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: flutter build apk --release --split-per-abi
+        run: |
+          VERSION="$(grep '^version:' pubspec.yaml | cut -d' ' -f2)"
+          echo "Версия $VERSION"
+          flutter build apk --release --split-per-abi --dart-define=APP_VERSION="$VERSION"
 
       - name: Проверка подписи
         run: |
