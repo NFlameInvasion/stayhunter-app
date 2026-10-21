@@ -29,9 +29,29 @@ Future<RoutePlan?> planWalkingRoute({
 }
 
 /// OSRM: пеший профиль, геометрия сразу в GeoJSON.
+///
+/// Сначала идём через свой сервер: с мобильных сетей прямой адрес OSRM
+/// часто не отвечает, а сервер в России его достаёт без VPN.
 Future<RoutePlan?> _osrm(http.Client client, LatLng from, LatLng to) async {
+  const hosts = [
+    'https://tiles.83.220.175.52.nip.io/route',
+    'https://router.project-osrm.org',
+  ];
+  for (final host in hosts) {
+    final plan = await _osrmFrom(client, host, from, to);
+    if (plan != null) return plan;
+  }
+  return null;
+}
+
+Future<RoutePlan?> _osrmFrom(
+  http.Client client,
+  String host,
+  LatLng from,
+  LatLng to,
+) async {
   final url = Uri.parse(
-    'https://router.project-osrm.org/route/v1/foot/'
+    '$host/route/v1/foot/'
     '${from.longitude},${from.latitude};${to.longitude},${to.latitude}'
     '?overview=full&geometries=geojson',
   );

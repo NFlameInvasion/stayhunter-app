@@ -1013,18 +1013,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_search.text.isNotEmpty)
-                          IconButton(
-                            tooltip: 'Очистить поле',
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(width: 24, height: 32),
-                            style: IconButton.styleFrom(
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: _clearSearch,
-                          ),
                         IconButton(
                           tooltip: _listening ? 'Остановить' : 'Сказать голосом',
                           visualDensity: VisualDensity.compact,
