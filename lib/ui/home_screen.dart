@@ -100,6 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _triangleBusy = false;
   bool _redrawing = false;
   bool _redrawPending = false;
+  String _lastSignature = '';
 
   /// Если плитки не пришли, показываем причину прямо на карте: без этого
   /// пустое поле не отличить от медленной загрузки.
@@ -136,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (oldWidget.isDark != widget.isDark) {
       // Стиль меняется целиком: аннотации после этого рисуются заново.
       _iconsReady = false;
+      _lastSignature = '';
       _map?.setStyle(buildVectorStyle(dark: widget.isDark));
     }
   }
@@ -246,6 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _onStyleLoaded() async {
     _iconsReady = false;
+    _lastSignature = '';
     await _redraw();
   }
 
@@ -326,6 +329,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _redrawInner(ml.MapLibreMapController controller) async {
+    final visible = _visible;
+    final drawn = _drawablePois(visible);
+
+    // Если на карте ничего не изменилось, второй проход не нужен: очистка и
+    // повторная постановка значков выглядит как мигание.
+    final signature = '${_selected?.id}|$_routeFor|${_zoom.toStringAsFixed(2)}|'
+        '${_landmark?.latitude},${_landmark?.longitude}|${widget.isDark}|'
+        '${_me?.latitude},${_me?.longitude}|${_route?.points.length}|'
+        '${drawn.map((poi) => poi.id).join(',')}';
+    if (signature == _lastSignature) return;
+    _lastSignature = signature;
 
     await controller.clearCircles();
     await controller.clearSymbols();
@@ -343,22 +357,6 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
       _iconsReady = true;
-    }
-
-    final visible = _visible;
-    // На дальних масштабах близкие объекты налезают друг на друга: оставляем
-    // один значок на клетку экрана, а при приближении показываем все.
-    final drawn = <Poi>[];
-    final cells = <String>{};
-    for (final poi in visible) {
-      if (_zoom >= 14.5) {
-        drawn.add(poi);
-      } else {
-        final cell = '${(_worldX(poi.lon) / 58).floor()}:'
-            '${(_worldY(poi.lat) / 58).floor()}';
-        if (cells.add(cell)) drawn.add(poi);
-      }
-      if (drawn.length >= 400) break;
     }
 
     for (final poi in drawn) {
@@ -490,6 +488,22 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     return labelled;
+  }
+
+  /// Кого рисуем: на дальних масштабах близкие объекты налезают друг на друга,
+  /// поэтому оставляем один значок на клетку экрана.
+  List<Poi> _drawablePois(List<Poi> visible) {
+    if (_zoom >= 14.5) return visible.take(400).toList(growable: false);
+
+    final drawn = <Poi>[];
+    final cells = <String>{};
+    for (final poi in visible) {
+      final cell = '${(_worldX(poi.lon) / 58).floor()}:'
+          '${(_worldY(poi.lat) / 58).floor()}';
+      if (cells.add(cell)) drawn.add(poi);
+      if (drawn.length >= 400) break;
+    }
+    return drawn;
   }
 
   double _worldX(double lon) =>
