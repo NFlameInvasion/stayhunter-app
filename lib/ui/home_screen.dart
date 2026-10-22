@@ -28,6 +28,7 @@ import 'city_picker.dart';
 import 'settings_sheet.dart';
 import 'category_bar.dart';
 import 'map_controls.dart';
+import 'place_card.dart';
 import 'poi_card.dart';
 
 /// Главный экран: векторная карта на весь экран и панель снизу — поиск,
@@ -72,6 +73,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   RoutePlan? _route;
   int? _routeFor;
+
+  /// Маршрут построен к МЕСТУ (площадь, улица), а не к объекту из базы:
+  /// у места нет id, поэтому оно не может совпасть с `_routeFor`.
+  bool _routeForPlace = false;
   bool _routing = false;
   String? _routeError;
 
@@ -647,8 +652,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _select(Poi poi) {
     setState(() {
       _selected = poi;
+      _landmark = null;
+      _landmarkName = null;
       _route = null;
       _routeFor = null;
+      _routeForPlace = false;
       _routeError = null;
       _panelCollapsed = false;
     });
@@ -661,6 +669,20 @@ class _HomeScreenState extends State<HomeScreen> {
       _selected = null;
       _route = null;
       _routeFor = null;
+      _routeForPlace = false;
+      _routeError = null;
+    });
+    _redraw();
+  }
+
+  /// Закрыть карточку места: точка на карте и её маршрут уходят вместе с ней.
+  void _closePlace() {
+    setState(() {
+      _landmark = null;
+      _landmarkName = null;
+      _route = null;
+      _routeFor = null;
+      _routeForPlace = false;
       _routeError = null;
     });
     _redraw();
@@ -730,6 +752,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _intentNote = 'Нашёл на карте: $name';
         _answerTop = const [];
         _answerCount = 0;
+        // Место открывается своей карточкой, поэтому выбранный ранее объект
+        // и его маршрут больше не показываются.
+        _selected = null;
+        _route = null;
+        _routeFor = null;
+        _routeForPlace = false;
+        _routeError = null;
+        _panelCollapsed = false;
       });
       _moveCamera(lat, lon, 16.5);
       await _redraw();
@@ -748,6 +778,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _answerCount = found.length;
       _answerTop = top;
       _answerCollapsed = false;
+      if (found.isNotEmpty) {
+        // Нашлись объекты — карточка места больше не нужна, как и её линия.
+        _landmark = null;
+        _landmarkName = null;
+        if (_routeForPlace) {
+          _route = null;
+          _routeForPlace = false;
+        }
+      }
     });
 
     if (top.isNotEmpty) {
@@ -764,6 +803,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _intentNote = null;
       _answerTop = const [];
       _answerCount = 0;
+      // Очистка поиска убирает и найденное место, иначе его карточка
+      // осталась бы висеть над пустым поиском.
+      _landmark = null;
+      _landmarkName = null;
+      if (_routeForPlace) {
+        _route = null;
+        _routeForPlace = false;
+      }
+      _routeError = null;
     });
     _redraw();
   }
@@ -963,6 +1011,51 @@ class _HomeScreenState extends State<HomeScreen> {
     _fitPoints(plan.points);
   }
 
+  /// Пешая дорога до найденного МЕСТА. Отличается от `_buildRoute` только
+  /// адресатом: у места нет id объекта, поэтому признак маршрута — отдельный
+  /// флаг, а не `_routeFor`.
+  Future<void> _buildRouteToPlace() async {
+    final target = _landmark;
+    if (_routing || target == null) return;
+    if (_routeForPlace) {
+      // Повторное нажатие убирает линию — так же, как у объектов.
+      setState(() {
+        _route = null;
+        _routeForPlace = false;
+        _routeError = null;
+      });
+      _redraw();
+      return;
+    }
+    setState(() {
+      _routing = true;
+      _routeError = null;
+    });
+
+    RoutePlan? plan;
+    try {
+      plan = await planWalkingRoute(from: _me ?? _city.center, to: target);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _routing = false;
+          if (plan != null) {
+            _route = plan;
+            _routeFor = null;
+            _routeForPlace = true;
+          } else {
+            _routeError = 'Маршрут не построился. Проверь связь и попробуй ещё раз — '
+                'строим по улицам, а не по прямой.';
+          }
+        });
+      }
+    }
+
+    if (plan == null || !mounted) return;
+    await _redraw();
+    _fitPoints(plan.points);
+  }
+
   // ------------------------------------------------------------------- вид
 
   @override
@@ -1125,7 +1218,7 @@ class _HomeScreenState extends State<HomeScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const SizedBox(height: 6),
-        if (_selected == null)
+        if (_selected == null && _landmarkName == null)
           CategoryBar(
             selected: _category,
             onChanged: (value) {
@@ -1152,6 +1245,16 @@ class _HomeScreenState extends State<HomeScreen> {
             bearingDeg: _me == null
                 ? null
                 : bearingBetween(_me!, LatLng(_selected!.lat, _selected!.lon)),
+          )
+        else if (_landmarkName != null && _landmark != null)
+          PlaceCard(
+            name: _landmarkName!,
+            meters: _me == null ? null : metersBetween(_me!, _landmark!),
+            onClose: _closePlace,
+            onRoute: _buildRouteToPlace,
+            routing: _routing,
+            route: _routeForPlace ? _route : null,
+            error: _routeError,
           )
         else ...[
           if (_intentNote != null) _intentRow(scheme),
