@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 
+import 'data/category_catalog.dart';
 import 'theme/app_theme.dart';
 import 'ui/home_screen.dart';
 
-void main() => runApp(const StayHunterApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Один запрос до первого кадра: список категорий должен совпадать с базой.
+  // Сервер не ответил — приложение стартует со встроенным набором.
+  await loadCategories();
+  runApp(const StayHunterApp());
+}
 
 class StayHunterApp extends StatefulWidget {
   const StayHunterApp({super.key});

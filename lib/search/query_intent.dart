@@ -62,7 +62,9 @@ SearchIntent understandQuery(String text) {
     return const SearchIntent(category: PoiCategory.atm);
   }
   if (has(r'обмен|обменник|валют|менял|менять деньг|курс')) {
-    return const SearchIntent(category: PoiCategory.exchange);
+    // Обмена валюты как отдельной категории в базе нет — ближайшее к смыслу
+    // «поменять деньги» это банк.
+    return const SearchIntent(category: PoiCategory.bank);
   }
   // «банкет» и «банковский» — не банк: после «банк» не должно идти «ет».
   if (has(r'банк(?!ет)')) {
@@ -71,14 +73,53 @@ SearchIntent understandQuery(String text) {
   if (has(r'аптек|лекарств|таблет|медикам|зеленый крест')) {
     return const SearchIntent(category: PoiCategory.pharmacy);
   }
-  if (has(r'супермаркет|гипермаркет|универсам')) {
-    return const SearchIntent(category: PoiCategory.supermarket);
-  }
-  if (has(r'магазин|продукт|еда|пить|воды|перекус|купить еды')) {
-    return const SearchIntent(category: PoiCategory.shop);
-  }
   if (has(r'отел|гостиниц|хостел|жиль|ночлег|переночевать|апартамент')) {
     return const SearchIntent(category: PoiCategory.hotel);
+  }
+  if (has(r'ресторан|кафе|поесть|пообедать|поужинать|обед|ужин|столов|фастфуд|шаурм|пицц|суши|кофейн')) {
+    return const SearchIntent(category: PoiCategory.restaurant);
+  }
+  if (has(r'такси')) {
+    return const SearchIntent(category: PoiCategory.taxi);
+  }
+  if (has(r'больниц|стационар|травмпункт')) {
+    return const SearchIntent(category: PoiCategory.hospital);
+  }
+  if (has(r'клиник|поликлиник|врач|доктор')) {
+    return const SearchIntent(category: PoiCategory.clinic);
+  }
+  if (has(r'зарядк|зарядить|электромобил|ev[-\s]?заряд')) {
+    return const SearchIntent(category: PoiCategory.charging);
+  }
+  if (has(r'метро|подземк')) {
+    return const SearchIntent(category: PoiCategory.metro);
+  }
+  if (has(r'электричк|поезд|вокзал|железнодорож|(^|[^а-я])жд([^а-я]|$)')) {
+    return const SearchIntent(category: PoiCategory.railway);
+  }
+  if (has(r'аэропорт|аэровокзал')) {
+    return const SearchIntent(category: PoiCategory.airport);
+  }
+  if (has(r'трамва')) {
+    return const SearchIntent(category: PoiCategory.tram);
+  }
+  if (has(r'паром|переправ')) {
+    return const SearchIntent(category: PoiCategory.ferry);
+  }
+  if (has(r'камер[аы] хранени|багаж')) {
+    return const SearchIntent(category: PoiCategory.luggage);
+  }
+  if (has(r'салон связи|симк|мтс|билайн|мегафон|теле2')) {
+    return const SearchIntent(category: PoiCategory.mobileShop);
+  }
+  if (has(r'прокат авто|аренда авто|арендовать машин|rent a car')) {
+    return const SearchIntent(category: PoiCategory.carRental);
+  }
+  if (has(r'велосипед|велопрокат|вело')) {
+    return const SearchIntent(category: PoiCategory.bikeRental);
+  }
+  if (has(r'самокат')) {
+    return const SearchIntent(category: PoiCategory.scooterRental);
   }
 
   return SearchIntent(cleaned: _withoutFillers(t));

@@ -90,16 +90,16 @@ void main() {
       expect(understandQuery('где ближайший банкомат').category, PoiCategory.atm);
     });
 
-    test('«обмен валюты в банке» — это обмен', () {
-      expect(understandQuery('обмен валюты в банке').category, PoiCategory.exchange);
+    test('«обмен валюты в банке» — это банк (отдельной категории обмена нет)', () {
+      expect(understandQuery('обмен валюты в банке').category, PoiCategory.bank);
     });
 
     test('«нужен банк» — банк', () {
       expect(understandQuery('нужен банк').category, PoiCategory.bank);
     });
 
-    test('«где купить воду» — магазин', () {
-      expect(understandQuery('где купить воду').category, PoiCategory.shop);
+    test('«где поесть» — ресторан', () {
+      expect(understandQuery('где поесть').category, PoiCategory.restaurant);
     });
 
     test('название объекта — поиск по словам, без категории', () {
