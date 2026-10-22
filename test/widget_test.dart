@@ -34,7 +34,7 @@ void main() {
         'lat': 0,
         'lon': 0,
       });
-      expect(poi.category, PoiCategory.shop);
+      expect(poi.category.key, 'что-то новое');
     });
   });
 

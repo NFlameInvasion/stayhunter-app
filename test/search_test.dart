@@ -18,25 +18,37 @@ void main() {
       'снять наличные': PoiCategory.atm,
       'обналичить карту': PoiCategory.atm,
       'ATM': PoiCategory.atm,
-      'обмен валюты': PoiCategory.exchange,
-      'где обменять валюту': PoiCategory.exchange,
-      'нужен обменник': PoiCategory.exchange,
-      'поменять деньги': PoiCategory.exchange,
-      'какой курс доллара': PoiCategory.exchange,
+      // Обмена валюты как отдельной категории в базе нет: такие фразы ведут
+      // в банк — это ближайшее к смыслу «поменять деньги» место.
+      'обмен валюты': PoiCategory.bank,
+      'где обменять валюту': PoiCategory.bank,
+      'нужен обменник': PoiCategory.bank,
+      'поменять деньги': PoiCategory.bank,
+      'какой курс доллара': PoiCategory.bank,
       'аптека': PoiCategory.pharmacy,
       'ближайшая аптека': PoiCategory.pharmacy,
       'нужны лекарства': PoiCategory.pharmacy,
       'купить таблетки': PoiCategory.pharmacy,
-      'супермаркет': PoiCategory.supermarket,
-      'гипермаркет рядом': PoiCategory.supermarket,
-      'магазин': PoiCategory.shop,
-      'продукты': PoiCategory.shop,
-      'купить воды': PoiCategory.shop,
-      'перекус': PoiCategory.shop,
       'отель': PoiCategory.hotel,
       'гостиница рядом': PoiCategory.hotel,
       'где переночевать': PoiCategory.hotel,
       'хостел': PoiCategory.hotel,
+      'где поесть': PoiCategory.restaurant,
+      'ресторан рядом': PoiCategory.restaurant,
+      'кофейня': PoiCategory.restaurant,
+      'такси': PoiCategory.taxi,
+      'больница': PoiCategory.hospital,
+      'поликлиника': PoiCategory.clinic,
+      'зарядка для машины': PoiCategory.charging,
+      'метро': PoiCategory.metro,
+      'аэропорт': PoiCategory.airport,
+      'вокзал': PoiCategory.railway,
+      'трамвай': PoiCategory.tram,
+      'паром': PoiCategory.ferry,
+      'камера хранения': PoiCategory.luggage,
+      'прокат велосипедов': PoiCategory.bikeRental,
+      'самокат': PoiCategory.scooterRental,
+      'салон связи': PoiCategory.mobileShop,
     };
 
     cases.forEach((phrase, expected) {
@@ -50,16 +62,18 @@ void main() {
   });
 
   group('узкое понятие важнее широкого', () {
-    test('«обмен валюты в банке» — это обмен, а не банк', () {
-      expect(understandQuery('обмен валюты в банке').category, PoiCategory.exchange);
+    test('«обмен валюты в банке» — это банк: категории обмена в базе нет', () {
+      expect(understandQuery('обмен валюты в банке').category, PoiCategory.bank);
     });
 
     test('«банкомат банка» — это банкомат', () {
       expect(understandQuery('банкомат банка').category, PoiCategory.atm);
     });
 
-    test('«супермаркет» не превращается в магазин', () {
-      expect(understandQuery('супермаркет').category, PoiCategory.supermarket);
+    test('«супермаркет» — категории нет, ищем по слову', () {
+      final intent = understandQuery('супермаркет');
+      expect(intent.category, isNull);
+      expect(intent.cleaned, 'супермаркет');
     });
   });
 
@@ -105,7 +119,7 @@ void main() {
     });
 
     test('кириллица и латиница в одном запросе: «курс usd»', () {
-      expect(understandQuery('курс usd').category, PoiCategory.exchange);
+      expect(understandQuery('курс usd').category, PoiCategory.bank);
     });
 
     test('пустая строка — ничего не понято и не ищется', () {
