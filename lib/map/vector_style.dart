@@ -30,7 +30,8 @@ class MapPalette {
     building: '#e3ddd6',
     road: '#ffffff',
     roadCasing: '#d5cec6',
-    label: '#2a2a2a',
+    // Подписи улиц читаются: почти чёрный на светлой подложке.
+    label: '#0b0f14',
     labelHalo: '#ffffff',
   );
 
@@ -41,7 +42,8 @@ class MapPalette {
     building: '#1b2530',
     road: '#2a3644',
     roadCasing: '#0d1218',
-    label: '#cfe3f5',
+    // И почти белый на тёмной — серый терялся на дорогах.
+    label: '#f2f7ff',
     labelHalo: '#06090d',
   );
 }
@@ -218,9 +220,10 @@ String buildVectorStyle({required bool dark}) {
         },
         'paint': {
           'text-color': p.label,
-          'text-opacity': dark ? 0.62 : 0.55,
+          // Раньше подписи были полупрозрачными (0,55–0,62) и терялись на дорогах.
+          'text-opacity': dark ? 0.96 : 0.92,
           'text-halo-color': p.labelHalo,
-          'text-halo-width': 1.0,
+          'text-halo-width': 1.4,
         },
       },
       {
