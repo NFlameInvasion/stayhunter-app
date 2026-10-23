@@ -763,6 +763,45 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _moveCamera(poi.lat, poi.lon, 16.4);
     _redraw();
+    _enrich(poi);
+  }
+
+  /// Догрузка карточки объекта: адрес, сайт, английское название и переводы
+  /// приходят из `/api/poi`. В списке их нет — там только имя и точка, — поэтому
+  /// карточка сначала показывается сразу, а потом дополняется.
+  Future<void> _enrich(Poi poi) async {
+    try {
+      final uri = Uri.parse('${PoiRepository.baseUrl}/api/poi/${poi.category.key}/${poi.id}');
+      final response = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200 || !mounted) return;
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (_selected?.id != poi.id) return;
+
+      final street = '${body['addrStreet'] ?? ''}'.trim();
+      final city = '${body['addrCity'] ?? ''}'.trim();
+      final address = [street, city].where((part) => part.isNotEmpty).join(', ');
+
+      setState(() {
+        _selected = Poi(
+          id: poi.id,
+          name: poi.name,
+          category: poi.category,
+          lat: poi.lat,
+          lon: poi.lon,
+          address: address,
+          hours: poi.hours,
+          phone: poi.phone,
+          website: '${body['website'] ?? ''}'.trim(),
+          nameEn: '${body['nameEn'] ?? poi.nameEn}'.trim(),
+          description: '${body['descriptionRu'] ?? ''}'.trim().isNotEmpty
+              ? '${body['descriptionRu']}'.trim()
+              : '${body['descriptionEn'] ?? ''}'.trim(),
+        );
+      });
+      _redraw();
+    } catch (_) {
+      // Карточка уже показана — без адреса, но рабочая.
+    }
   }
 
   void _closeCard() {

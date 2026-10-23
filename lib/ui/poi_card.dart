@@ -119,6 +119,15 @@ class PoiCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
+          if (poi.description.isNotEmpty) ...[
+            Text(
+              poi.description,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, height: 1.35, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 8),
+          ],
           Text(
             route != null
                 ? '${formatDistance(route!.meters)} · ${walkMinutes(route!.meters)} пешком'

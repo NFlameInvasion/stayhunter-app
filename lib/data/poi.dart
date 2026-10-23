@@ -98,6 +98,7 @@ class Poi {
     this.phone = '',
     this.website = '',
     this.nameEn = '',
+    this.description = '',
   });
 
   final int id;
@@ -111,6 +112,9 @@ class Poi {
 
   /// Английское название: из OSM или из кэша переводов на сервере.
   final String nameEn;
+
+  /// Описание объекта (русское, если есть, иначе английское).
+  final String description;
 
   /// Имя для показа. Если исходное имя на непрочитаемом скрипте (иероглифы,
   /// тайский, арабский), а английское есть — показываем английское: иначе
@@ -143,5 +147,8 @@ class Poi {
         phone: (json['phone'] as String? ?? '').trim(),
         website: (json['web'] as String? ?? '').trim(),
         nameEn: (json['nameEn'] as String? ?? '').trim(),
+        description: (json['descriptionRu'] as String? ?? '').trim().isNotEmpty
+            ? (json['descriptionRu'] as String).trim()
+            : (json['descriptionEn'] as String? ?? '').trim(),
       );
 }
