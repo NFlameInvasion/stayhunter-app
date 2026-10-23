@@ -24,7 +24,8 @@ class CityPicker extends StatefulWidget {
 }
 
 class _CityPickerState extends State<CityPicker> {
-  static const _geocodeUrl = 'https://map.83.220.175.52.nip.io/geocode/search';
+  // Свой прокси: он же переводит запрос, если по-русски место не находится.
+  static const _geocodeUrl = 'https://map.83.220.175.52.nip.io/api/place';
 
   String query = '';
   List<City> places = const [];
@@ -70,10 +71,7 @@ class _CityPickerState extends State<CityPicker> {
     try {
       final uri = Uri.parse(_geocodeUrl).replace(queryParameters: {
         'q': text,
-        'format': 'json',
-        'limit': '6',
-        'accept-language': 'ru',
-        'addressdetails': '1',
+        'lang': 'ru',
       });
       final response = await http.get(uri).timeout(const Duration(seconds: 12));
       if (response.statusCode != 200 || !mounted || ticket != _request) {

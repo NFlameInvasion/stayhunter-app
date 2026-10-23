@@ -164,13 +164,10 @@ Future<City?> placeNear(double latitude, double longitude, {http.Client? client}
   final ownsClient = client == null;
   final c = client ?? http.Client();
   try {
-    final uri = Uri.parse('https://map.83.220.175.52.nip.io/geocode/reverse').replace(queryParameters: {
+    final uri = Uri.parse('https://map.83.220.175.52.nip.io/api/place').replace(queryParameters: {
       'lat': '$latitude',
       'lon': '$longitude',
-      'format': 'jsonv2',
-      'accept-language': 'ru',
-      'zoom': '10',
-      'addressdetails': '1',
+      'lang': 'ru',
     });
     final response = await c.get(uri).timeout(const Duration(seconds: 12));
     if (response.statusCode != 200) {

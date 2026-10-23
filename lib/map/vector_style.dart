@@ -206,7 +206,7 @@ String buildVectorStyle({required bool dark}) {
         'minzoom': 14,
         'layout': {
           'symbol-placement': 'line',
-          'text-field': ['get', 'name'],
+          'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']],
           'text-font': ['Noto Sans Regular'],
           'text-size': [
             'interpolate', ['linear'], ['zoom'],
@@ -236,7 +236,7 @@ String buildVectorStyle({required bool dark}) {
           'town',
         ],
         'layout': {
-          'text-field': ['get', 'name'],
+          'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']],
           'text-font': ['Noto Sans Regular'],
           'text-size': [
             'interpolate', ['linear'], ['zoom'],

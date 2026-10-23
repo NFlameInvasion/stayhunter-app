@@ -875,11 +875,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Поиск места по названию (Красная площадь, аэропорт): свои данные
   /// знают только объекты, а название улицы или площади — нет.
   Future<void> _geocode(String query) async {
-    final uri = Uri.parse(
-      'https://tiles.83.220.175.52.nip.io/geocode/search'
-      '?q=${Uri.encodeQueryComponent(query)}'
-      '&format=json&limit=1&accept-language=ru',
-    );
+    final uri = Uri.parse('${PoiRepository.baseUrl}/api/place')
+        .replace(queryParameters: {'q': query, 'lang': 'ru'});
     try {
       final response = await http.get(uri).timeout(const Duration(seconds: 12));
       if (response.statusCode != 200) return;
