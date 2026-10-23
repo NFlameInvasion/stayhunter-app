@@ -61,6 +61,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   PoiCategory? _category;
   String _phrase = '';
+
+  /// Объекты в `_all` пришли из базы (true) или из снимка в assets (false).
+  /// От этого зависит, нужно ли фильтровать список на клиенте.
+  bool _fromServer = false;
   String? _intentNote;
 
   Poi? _selected;
@@ -95,6 +99,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String _voiceDraft = '';
   Timer? _voiceLimit;
   Timer? _voiceRestart;
+
+  /// Отложенный запрос «что видно в этой рамке» после остановки камеры.
+  Timer? _viewportTimer;
   DateTime? _voiceStarted;
   static const _voiceMax = Duration(minutes: 2);
 
@@ -156,6 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _viewportTimer?.cancel();
     _compass?.cancel();
     _voiceLimit?.cancel();
     _voiceRestart?.cancel();
@@ -172,15 +180,67 @@ class _HomeScreenState extends State<HomeScreen> {
       _loading = true;
       _error = null;
     });
+
+    // Сначала — база на сервере. С выбранной категорией или текстом спрашиваем
+    // весь город (рамка региона из каталога), без фильтра — только видимую рамку:
+    // иначе на старте пришлось бы тянуть весь город.
+    final from = _me ?? _city.center;
+    final hasFilter = _category != null || _phrase.isNotEmpty;
+    double? west;
+    double? south;
+    double? east;
+    double? north;
+    if (!hasFilter) {
+      try {
+        final visible = await _map?.getVisibleRegion();
+        if (visible != null) {
+          west = visible.southwest.longitude;
+          south = visible.southwest.latitude;
+          east = visible.northeast.longitude;
+          north = visible.northeast.latitude;
+        }
+      } catch (_) {
+        // Карта ещё не готова — ниже уйдём в запасной путь.
+      }
+    }
+    if (hasFilter || west != null) {
+      try {
+        final result = await _repository.search(
+          region: hasFilter ? _city.key : null,
+          category: _category?.key,
+          query: _phrase.isEmpty ? null : _phrase,
+          west: west,
+          south: south,
+          east: east,
+          north: north,
+          zoom: _zoom.round(),
+        );
+        final list = [...result.pois]..sort((a, b) => metersBetween(from, LatLng(a.lat, a.lon))
+            .compareTo(metersBetween(from, LatLng(b.lat, b.lon))));
+        if (!mounted) return;
+        setState(() {
+          _all = list;
+          _loading = false;
+          _error = null;
+          _fromServer = true;
+        });
+        await _redraw();
+        return;
+      } catch (_) {
+        // Падаем в запасной путь ниже.
+      }
+    }
+
     try {
       final list = await _repository.load(_city.asset);
-      final from = _me ?? _city.center;
       list.sort((a, b) => metersBetween(from, LatLng(a.lat, a.lon))
           .compareTo(metersBetween(from, LatLng(b.lat, b.lon))));
       if (!mounted) return;
       setState(() {
         _all = list;
         _loading = false;
+        _fromServer = false;
+        _error = 'Сервер недоступен: показан сохранённый снимок этого города.';
       });
       await _redraw();
     } catch (error) {
@@ -222,6 +282,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Poi> get _visible {
+    // Данные пришли из базы — фильтр уже применён на сервере (по категории и по
+    // name/name_en). Повторная фильтрация на клиенте только потеряла бы строки:
+    // например, «pharmacy» совпало с name_en, а в name его нет.
+    if (_fromServer) return _all;
     final query = _phrase.trim().toLowerCase();
     return _all.where((poi) {
       if (_category != null && poi.category != _category) return false;
@@ -241,6 +305,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (poi != null) _select(poi);
     });
     _redraw();
+    // Карта готова — теперь известна видимая рамка, можно спросить базу «что здесь есть».
+    _load();
   }
 
   Future<void> _onStyleLoaded() async {
@@ -263,6 +329,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     // При смене масштаба треугольник пересчитываем: его размер задан в метрах.
     if (zoomChanged && _me != null) _updateTriangle(_heading ?? 0, force: true);
+
+    // Пан или зум без фильтра — это новый вопрос «что здесь есть». Спрашиваем базу
+    // один раз после остановки камеры, а не на каждый кадр движения.
+    if (_category == null && _phrase.isEmpty && zoom >= 12) {
+      _viewportTimer?.cancel();
+      _viewportTimer = Timer(const Duration(milliseconds: 700), () {
+        if (mounted) _load();
+      });
+    }
   }
 
   void _moveCamera(double lat, double lon, double zoom) {
@@ -695,7 +770,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
-  void _submitSearch() {
+  Future<void> _submitSearch() async {
     FocusScope.of(context).unfocus();
     final text = _search.text.trim();
     if (text.isEmpty) {
@@ -706,7 +781,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _answerTop = const [];
         _answerCount = 0;
       });
-      _redraw();
+      await _load();
       return;
     }
 
@@ -723,6 +798,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _intentNote = 'Ищу по словам: «$text»';
       }
     });
+    // Сначала спрашиваем базу по этой категории/словам, потом показываем ответ:
+    // иначе в списке окажется то, что было найдено для прошлого запроса.
+    await _load();
+    if (!mounted) return;
     _showAnswer(_visible);
     // Среди объектов такого может не быть — тогда ищем место по названию.
     if (_visible.isEmpty && text.length > 2) _geocode(text);
@@ -813,10 +892,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       _routeError = null;
     });
-    _redraw();
+    _load();
   }
-
-  // ------------------------------------------------------------------ голос
 
   Future<void> _toggleVoice() async {
     if (_listening) {
@@ -1228,7 +1305,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 _answerTop = const [];
                 _answerCount = 0;
               });
-              _redraw();
+              // Категория — это запрос к базе, а не фильтр уже загруженного списка:
+              // в снимке из assets может не быть ни одного такого объекта.
+              _load();
             },
           ),
         const SizedBox(height: 6),

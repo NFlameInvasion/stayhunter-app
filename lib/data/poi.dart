@@ -113,8 +113,9 @@ class Poi {
 
   factory Poi.fromJson(Map<String, dynamic> json) => Poi(
         id: (json['id'] as num).toInt(),
-        name: (json['name'] as String).trim(),
-        category: PoiCategory.fromKey(json['cat'] as String),
+        // Сервер отдаёт `category`, старые снимки в assets — `cat`.
+        name: (json['name'] as String? ?? '').trim(),
+        category: PoiCategory.fromKey('${json['category'] ?? json['cat']}'),
         lat: (json['lat'] as num).toDouble(),
         lon: (json['lon'] as num).toDouble(),
         address: (json['addr'] as String? ?? '').trim(),
