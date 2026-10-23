@@ -115,10 +115,14 @@ class PoiCard extends StatelessWidget {
           Text(
             route != null
                 ? '${formatDistance(route!.meters)} · ${walkMinutes(route!.meters)} пешком'
-                : '${formatDistance(meters)} по прямой · ${walkMinutes(meters)} пешком',
+                : meters > 50000
+                    // За десятки километров «пешком» превращается в «1756 часов» —
+                    // это не подсказка, а шум. Честнее показать только расстояние.
+                    ? '${formatDistance(meters)} от тебя по прямой'
+                    : '${formatDistance(meters)} по прямой · ${walkMinutes(meters)} пешком',
             style: TextStyle(fontSize: 13, color: scheme.onSurface),
           ),
-          if (headingDeg != null && bearingDeg != null) ...[
+          if (headingDeg != null && bearingDeg != null && meters < 30000) ...[
             const SizedBox(height: 8),
             Builder(builder: (context) {
               final relative = relativeBearing(bearing: bearingDeg!, heading: headingDeg!);
