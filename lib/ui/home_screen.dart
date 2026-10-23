@@ -298,11 +298,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickCity() async {
-    final chosen = await showModalBottomSheet<City>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => CityPicker(cities: cities, current: _city),
+    // Полноэкранный выбор вместо нижней шторки: поле ввода остаётся наверху и не
+    // прыгает, клавиатура не сдвигает панель, и экран не темнеет под модалкой.
+    final chosen = await Navigator.of(context).push<City>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => CityPicker(cities: cities, current: _city, fullScreen: true),
+      ),
     );
     if (chosen != null) await _switchCity(chosen);
   }

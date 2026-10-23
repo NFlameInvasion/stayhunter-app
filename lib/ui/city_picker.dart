@@ -14,10 +14,18 @@ import '../data/city.dart';
 /// ищут Мюнхен, Киото, Нюрнберг. Ввод уходит в геокодер, его ответ становится
 /// областью поиска объектов — ровно так же, как выбор города из каталога.
 class CityPicker extends StatefulWidget {
-  const CityPicker({super.key, required this.cities, required this.current});
+  const CityPicker({
+    super.key,
+    required this.cities,
+    required this.current,
+    this.fullScreen = false,
+  });
 
   final List<City> cities;
   final City current;
+
+  /// Полноэкранный режим: свой AppBar и заголовок, поле ввода прижато к верху.
+  final bool fullScreen;
 
   @override
   State<CityPicker> createState() => _CityPickerState();
@@ -122,6 +130,24 @@ class _CityPickerState extends State<CityPicker> {
 
   @override
   Widget build(BuildContext context) {
+    final body = _body(context);
+    if (!widget.fullScreen) {
+      return body;
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Где искать'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Закрыть',
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: body,
+    );
+  }
+
+  Widget _body(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final found = matched;
 
@@ -138,11 +164,13 @@ class _CityPickerState extends State<CityPicker> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Где искать',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
+            if (!widget.fullScreen) ...[
+              const Text(
+                'Где искать',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+            ],
             TextField(
               autofocus: true,
               textInputAction: TextInputAction.search,
