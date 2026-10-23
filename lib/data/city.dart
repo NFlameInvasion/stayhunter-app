@@ -157,3 +157,47 @@ Future<void> loadCities({http.Client? client}) async {
     }
   }
 }
+
+/// Город и страна по координатам: обратный геокодер. Нужен, чтобы приложение
+/// само открывалось там, где человек находится, и искало в его городе.
+Future<City?> placeNear(double latitude, double longitude, {http.Client? client}) async {
+  final ownsClient = client == null;
+  final c = client ?? http.Client();
+  try {
+    final uri = Uri.parse('https://map.83.220.175.52.nip.io/geocode/reverse').replace(queryParameters: {
+      'lat': '$latitude',
+      'lon': '$longitude',
+      'format': 'jsonv2',
+      'accept-language': 'ru',
+      'zoom': '10',
+      'addressdetails': '1',
+    });
+    final response = await c.get(uri).timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      return null;
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final address = body['address'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final name = '${address['city'] ?? address['town'] ?? address['village'] ?? address['municipality'] ?? body['name'] ?? ''}'.trim();
+    final country = '${address['country'] ?? ''}'.trim();
+    final box = (body['boundingbox'] as List<dynamic>? ?? const <dynamic>[])
+        .map((value) => double.tryParse('$value'))
+        .toList(growable: false);
+    if (name.isEmpty || box.length != 4) {
+      return null;
+    }
+    // Nominatim отдаёт рамку как [юг, север, запад, восток].
+    return City.fromPlace(
+      name: name,
+      country: country,
+      center: LatLng(latitude, longitude),
+      bbox: CityBbox(south: box[0]!, west: box[2]!, north: box[1]!, east: box[3]!),
+    );
+  } catch (_) {
+    return null;
+  } finally {
+    if (ownsClient) {
+      c.close();
+    }
+  }
+}

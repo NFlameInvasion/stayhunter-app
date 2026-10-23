@@ -134,6 +134,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _load();
     _checkTiles();
+    // Тихая попытка понять, где человек: если доступ уже выдан, город определится
+    // сам, и поиск сразу пойдёт по нему. Разрешение на старте не спрашиваем.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoLocate());
     _search.addListener(() => setState(() {}));
     try {
       _compass = FlutterCompass.events?.listen(
@@ -1029,6 +1032,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ------------------------------------------------------------- место и путь
 
+  /// Тихий старт: если доступ к геолокации уже выдан, определяем город сразу.
+  /// Разрешение на старте не спрашиваем — это делает кнопка «моё место».
+  Future<void> _autoLocate() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.whileInUse && permission != LocationPermission.always) {
+        return;
+      }
+      final last = await Geolocator.getLastKnownPosition();
+      final position = last ??
+          await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 8),
+            ),
+          );
+      final me = LatLng(position.latitude, position.longitude);
+      if (!mounted) return;
+      setState(() => _me = me);
+      final place = await placeNear(me.latitude, me.longitude);
+      if (place == null || !mounted) return;
+      setState(() => _city = place);
+      _moveCamera(me.latitude, me.longitude, 15.5);
+      await _load();
+    } catch (_) {
+      // Нет GPS или отказали — остаёмся на городе по умолчанию.
+    }
+  }
+
   Future<void> _locate() async {
     setState(() => _locating = true);
     try {
@@ -1069,6 +1101,12 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _me = me!);
       _moveCamera(me.latitude, me.longitude, 16.2);
       await _redraw();
+      // Город и страну берём у обратного геокодера: искать надо там, где стоишь.
+      final place = await placeNear(me.latitude, me.longitude);
+      if (place != null && mounted) {
+        setState(() => _city = place);
+        await _load();
+      }
     } catch (_) {
       _showNote('Не удалось определить место — попробуй на улице');
     } finally {
