@@ -7,12 +7,12 @@ import 'package:latlong2/latlong.dart';
 
 import '../data/city.dart';
 
-/// Выбор места поиска: строка ввода (страна, город или «страна, город») плюс
-/// подсказки из каталога базы.
+/// Выбор места поиска: одно поле и плоский список городов.
 ///
-/// Каталог знает по одному городу на страну, поэтому одного списка мало: люди
-/// ищут Мюнхен, Киото, Нюрнберг. Ввод уходит в геокодер, его ответ становится
-/// областью поиска объектов — ровно так же, как выбор города из каталога.
+/// Каталог знает по одному городу на страну, поэтому список не главный: ввод
+/// уходит в геокодер (`/api/place`), тот отдаёт рамку места, и по ней ищутся
+/// объекты в базе. Пока ничего не введено — списка нет вообще, только поле:
+/// простыня из 49 стран на весь экран только мешает.
 class CityPicker extends StatefulWidget {
   const CityPicker({
     super.key,
@@ -24,7 +24,7 @@ class CityPicker extends StatefulWidget {
   final List<City> cities;
   final City current;
 
-  /// Полноэкранный режим: свой AppBar и заголовок, поле ввода прижато к верху.
+  /// Полноэкранный режим: свой AppBar, поле прижато к верху.
   final bool fullScreen;
 
   @override
@@ -40,16 +40,6 @@ class _CityPickerState extends State<CityPicker> {
   bool searching = false;
   Timer? _debounce;
   int _request = 0;
-
-  List<City> get matched {
-    final text = query.trim().toLowerCase();
-    if (text.isEmpty) return widget.cities;
-    return widget.cities
-        .where((city) =>
-            city.name.toLowerCase().contains(text) ||
-            city.country.toLowerCase().contains(text))
-        .toList(growable: false);
-  }
 
   @override
   void dispose() {
@@ -98,10 +88,6 @@ class _CityPickerState extends State<CityPicker> {
           continue;
         }
         // Nominatim отдаёт рамку как [юг, север, запад, восток].
-        final south = box[0]!;
-        final north = box[1]!;
-        final west = box[2]!;
-        final east = box[3]!;
         final display = '${hit['display_name'] ?? ''}';
         final head = display.split(',').first.trim();
         final address = hit['address'] as Map<String, dynamic>? ?? const <String, dynamic>{};
@@ -110,7 +96,7 @@ class _CityPickerState extends State<CityPicker> {
           name: head.isEmpty ? text : head,
           country: country,
           center: LatLng(lat, lon),
-          bbox: CityBbox(south: south, west: west, north: north, east: east),
+          bbox: CityBbox(south: box[0]!, west: box[2]!, north: box[1]!, east: box[3]!),
         ));
       }
       if (!mounted || ticket != _request) {
@@ -126,6 +112,47 @@ class _CityPickerState extends State<CityPicker> {
       }
       setState(() => searching = false);
     }
+  }
+
+  /// Плоский список: найденное геокодером плюс совпадения из каталога, без
+  /// группировки по странам. Дубликаты («Москва» из двух источников) схлопываются.
+  List<City> _results() {
+    final text = query.trim().toLowerCase();
+    if (text.isEmpty) {
+      return const [];
+    }
+
+    final merged = <City>[];
+    final seen = <String>{};
+    final fromCatalog = widget.cities.where((city) =>
+        city.name.toLowerCase().contains(text) || city.country.toLowerCase().contains(text));
+
+    for (final city in [...places, ...fromCatalog]) {
+      final key = '${city.name}|${city.country}'.toLowerCase();
+      if (seen.add(key)) {
+        merged.add(city);
+      }
+    }
+    return merged;
+  }
+
+  Widget _row(BuildContext context, City city, ColorScheme scheme) {
+    final isCurrent = city.key.isNotEmpty && city.key == widget.current.key;
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        city.bbox == null ? Icons.location_city : Icons.place_outlined,
+        size: 20,
+        color: scheme.onSurfaceVariant,
+      ),
+      title: Text(city.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: city.country.isEmpty
+          ? null
+          : Text(city.country, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: isCurrent ? const Icon(Icons.check) : null,
+      onTap: () => Navigator.pop(context, city),
+    );
   }
 
   @override
@@ -149,17 +176,14 @@ class _CityPickerState extends State<CityPicker> {
 
   Widget _body(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final found = matched;
-
-    // Страны в том порядке, в каком они встретились в списке городов.
-    final byCountry = <String, List<City>>{};
-    for (final city in found) {
-      byCountry.putIfAbsent(city.country, () => []).add(city);
-    }
+    final text = query.trim();
+    final rows = _results();
+    // Список занимает меньше половины экрана: остальное — карта за ним.
+    final listHeight = MediaQuery.of(context).size.height * 0.45;
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -175,14 +199,14 @@ class _CityPickerState extends State<CityPicker> {
               autofocus: true,
               textInputAction: TextInputAction.search,
               onChanged: _onQueryChanged,
-              onSubmitted: (value) {
-                if (places.isNotEmpty) {
-                  Navigator.pop(context, places.first);
+              onSubmitted: (_) {
+                if (rows.isNotEmpty) {
+                  Navigator.pop(context, rows.first);
                 }
               },
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'Город, страна или «страна, город»',
+                hintText: 'Город или страна',
                 prefixIcon: const Icon(Icons.search, size: 20),
                 suffixIcon: searching
                     ? const Padding(
@@ -202,62 +226,39 @@ class _CityPickerState extends State<CityPicker> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Flexible(
-              child: (found.isEmpty && places.isEmpty && !searching)
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Text('Ничего не нашлось'),
-                    )
-                  : ListView(
-                      shrinkWrap: true,
-                      children: [
-                        if (places.isNotEmpty) ...[
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 10, 4, 4),
-                            child: Text(
-                              'Найдено по названию',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          for (final place in places)
-                            ListTile(
-                              dense: true,
-                              leading: const Icon(Icons.place_outlined, size: 20),
-                              title: Text(place.name),
-                              subtitle: place.country.isEmpty ? null : Text(place.country),
-                              onTap: () => Navigator.pop(context, place),
-                            ),
-                        ],
-                        for (final entry in byCountry.entries) ...[
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 10, 4, 4),
-                            child: Text(
-                              entry.key,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          for (final city in entry.value)
-                            ListTile(
-                              dense: true,
-                              title: Text(city.name),
-                              trailing: city.key == widget.current.key
-                                  ? const Icon(Icons.check)
-                                  : null,
-                              onTap: () => Navigator.pop(context, city),
-                            ),
-                        ],
-                      ],
-                    ),
-            ),
+            if (text.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 28, left: 8, right: 8),
+                child: Text(
+                  'Введи город или страну. Можно вместе: «Германия, Нюрнберг».',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                ),
+              )
+            else if (rows.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: Center(
+                  child: searching
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Ничего не нашлось'),
+                ),
+              )
+            else ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: listHeight,
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: rows.length,
+                  itemBuilder: (context, index) => _row(context, rows[index], scheme),
+                ),
+              ),
+            ],
           ],
         ),
       ),
