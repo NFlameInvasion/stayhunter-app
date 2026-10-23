@@ -483,7 +483,7 @@ class _HomeScreenState extends State<HomeScreen> {
         await controller.addSymbol(
           ml.SymbolOptions(
             geometry: ml.LatLng(poi.lat, poi.lon),
-            textField: poi.name,
+            textField: poi.displayName,
             textSize: 11,
             textColor: widget.isDark ? '#e6edf7' : '#101828',
             textHaloColor: widget.isDark ? '#0b0f14' : '#ffffff',
@@ -1622,7 +1622,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _answerTop[i].name,
+                              _answerTop[i].displayName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
@@ -1713,7 +1713,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Icon(poi.category.icon, size: 19, color: poi.category.color),
                 ),
                 title: Text(
-                  poi.name,
+                  poi.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),

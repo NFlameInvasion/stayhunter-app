@@ -97,6 +97,7 @@ class Poi {
     this.hours = '',
     this.phone = '',
     this.website = '',
+    this.nameEn = '',
   });
 
   final int id;
@@ -107,6 +108,25 @@ class Poi {
   final String address;
   final String hours;
   final String phone;
+
+  /// Английское название: из OSM или из кэша переводов на сервере.
+  final String nameEn;
+
+  /// Имя для показа. Если исходное имя на непрочитаемом скрипте (иероглифы,
+  /// тайский, арабский), а английское есть — показываем английское: иначе
+  /// в Китае и Таиланде список нечитаем.
+  String get displayName {
+    final en = nameEn.trim();
+    if (en.isEmpty) return name;
+    final readable = RegExp(r'[A-Za-zА-Яа-яЁё]').hasMatch(name);
+    return readable ? name : en;
+  }
+
+  /// Местное название, когда оно отличается от показанного.
+  String get subName {
+    final shown = displayName;
+    return shown == name ? '' : name;
+  }
 
   /// Сайт объекта из OSM (website / contact:website). Пусто — откроем страницу OSM.
   final String website;
@@ -122,5 +142,6 @@ class Poi {
         hours: (json['hours'] as String? ?? '').trim(),
         phone: (json['phone'] as String? ?? '').trim(),
         website: (json['web'] as String? ?? '').trim(),
+        nameEn: (json['nameEn'] as String? ?? '').trim(),
       );
 }

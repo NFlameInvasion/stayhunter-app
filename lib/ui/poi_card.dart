@@ -82,12 +82,19 @@ class PoiCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      poi.name,
+                      poi.displayName,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 2),
+                    if (poi.subName.isNotEmpty)
+                      Text(
+                        poi.subName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                      ),
                     Text(
                       [poi.category.label, if (poi.address.isNotEmpty) poi.address].join(' · '),
                       maxLines: 2,
