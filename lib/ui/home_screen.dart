@@ -186,11 +186,18 @@ class _HomeScreenState extends State<HomeScreen> {
     // иначе на старте пришлось бы тянуть весь город.
     final from = _me ?? _city.center;
     final hasFilter = _category != null || _phrase.isNotEmpty;
+    final area = _city.bbox;
     double? west;
     double? south;
     double? east;
     double? north;
-    if (!hasFilter) {
+    if (hasFilter && area != null) {
+      // Выбранное место (каталог или геокодер) — это и есть область поиска.
+      west = area.west;
+      south = area.south;
+      east = area.east;
+      north = area.north;
+    } else if (!hasFilter) {
       try {
         final visible = await _map?.getVisibleRegion();
         if (visible != null) {
@@ -206,7 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (hasFilter || west != null) {
       try {
         final result = await _repository.search(
-          region: hasFilter ? _city.key : null,
+          region: (area == null && hasFilter) ? _city.key : null,
           category: _category?.key,
           query: _phrase.isEmpty ? null : _phrase,
           west: west,
@@ -268,7 +275,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _switchCity(City city) async {
-    if (city.key == _city.key) return;
+    // У места из геокодера нет ключа региона, поэтому сравниваем по имени и точке.
+    if (city.name == _city.name && city.center == _city.center) return;
     setState(() {
       _city = city;
       _all = const [];

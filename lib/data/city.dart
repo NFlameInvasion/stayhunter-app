@@ -4,6 +4,16 @@ import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+/// Прямоугольник области: для города из геокодера, у которого нет ключа региона.
+class CityBbox {
+  const CityBbox({required this.south, required this.west, required this.north, required this.east});
+
+  final double south;
+  final double west;
+  final double north;
+  final double east;
+}
+
 /// Город, по которому сейчас ищем: ключ региона из каталога, точка камеры и (для
 /// двух старых городов) файл-снимок на случай, когда сервер недоступен.
 class City {
@@ -14,6 +24,7 @@ class City {
     required this.center,
     required this.asset,
     required this.initialZoom,
+    this.bbox,
   });
 
   final String key;
@@ -27,6 +38,27 @@ class City {
   final String asset;
 
   final double initialZoom;
+
+  /// Область поиска, если место выбрано по названию (геокодер), а не из каталога.
+  final CityBbox? bbox;
+
+  /// Место из геокодера: город, которого нет в каталоге (Мюнхен, Киото), или
+  /// страна целиком. Ключа региона у него нет — поиск идёт по этой рамке.
+  factory City.fromPlace({
+    required String name,
+    required String country,
+    required LatLng center,
+    required CityBbox bbox,
+  }) =>
+      City(
+        key: '',
+        name: name,
+        country: country,
+        center: center,
+        asset: '',
+        initialZoom: _zoomForSpan((bbox.east - bbox.west).abs()),
+        bbox: bbox,
+      );
 
   /// Город из каталога сервера: центр — середина рамки, масштаб — по её ширине.
   factory City.fromCatalog(Map<String, dynamic> city, String countryName) {
@@ -42,6 +74,7 @@ class City {
       center: LatLng((south + north) / 2, (west + east) / 2),
       asset: '',
       initialZoom: _zoomForSpan((east - west).abs()),
+      bbox: CityBbox(south: south, west: west, north: north, east: east),
     );
   }
 
