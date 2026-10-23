@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 
 import 'data/category_catalog.dart';
+import 'data/city.dart';
 import 'theme/app_theme.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Один запрос до первого кадра: список категорий должен совпадать с базой.
-  // Сервер не ответил — приложение стартует со встроенным набором.
-  await loadCategories();
+  // Два запроса до первого кадра: категории и список городов должны совпадать с
+  // базой. Сервер молчит — приложение стартует со встроенными наборами.
+  await Future.wait([loadCategories(), loadCities()]);
   runApp(const StayHunterApp());
 }
 

@@ -231,6 +231,21 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    if (_city.asset.isEmpty) {
+      // Для городов из каталога снимка нет: подменять базу нечем, и притворяться,
+      // что объектов не существует, тоже нельзя — говорим прямо.
+      if (mounted) {
+        setState(() {
+          _all = const [];
+          _loading = false;
+          _fromServer = false;
+          _error = 'Сервер недоступен, а сохранённого снимка для этого города нет.';
+        });
+      }
+      await _redraw();
+      return;
+    }
+
     try {
       final list = await _repository.load(_city.asset);
       list.sort((a, b) => metersBetween(from, LatLng(a.lat, a.lon))
