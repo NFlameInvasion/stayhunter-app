@@ -94,7 +94,11 @@ class PlaceCard extends StatelessWidget {
                 ? 'Расстояние неизвестно: включи геолокацию'
                 : route != null
                     ? '${formatDistance(route!.meters)} · ${walkMinutes(route!.meters)} пешком'
-                    : '${formatDistance(shown)} по прямой · ${walkMinutes(shown)} пешком',
+                    : shown > 50000
+                        // «916 часов пешком» — не подсказка. На дальних расстояниях
+                        // честнее показать только расстояние по прямой.
+                        ? '${formatDistance(shown)} от тебя по прямой'
+                        : '${formatDistance(shown)} по прямой · ${walkMinutes(shown)} пешком',
             style: TextStyle(fontSize: 13, color: scheme.onSurface),
           ),
           if (error != null) ...[
