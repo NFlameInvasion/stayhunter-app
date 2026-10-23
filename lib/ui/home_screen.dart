@@ -1299,8 +1299,13 @@ class _HomeScreenState extends State<HomeScreen> {
           CategoryBar(
             selected: _category,
             onChanged: (value) {
+              // Категория — это отдельный вопрос «покажи аптеки», а не уточнение
+              // прошлой фразы. Остаток текста (например, «ага покушать» после
+              // голосового поиска) иначе уедет в q и обнулит любой результат.
+              _search.clear();
               setState(() {
                 _category = value;
+                _phrase = '';
                 _intentNote = null;
                 _answerTop = const [];
                 _answerCount = 0;
@@ -1400,7 +1405,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           onPressed: _toggleVoice,
                         ),
-                        const SizedBox(width: 4),
+                        // Микрофон и стрелка — разные действия: держим между ними
+                        // заметный зазор, чтобы не попасть в соседнюю кнопку.
+                        const SizedBox(width: 14),
                         IconButton(
                           tooltip: 'Найти',
                           visualDensity: VisualDensity.compact,
