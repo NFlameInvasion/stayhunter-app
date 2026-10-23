@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -22,6 +23,23 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
 GRADLE = ROOT / "android/app/build.gradle.kts"
 MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/ru/nflame/stayhunter/MainActivity.kt"
+ICONS = ROOT / "tools/icons"
+
+# Плотности лончера и соответствующие PNG из tools/icons.
+LEGACY_ICONS = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
+
+ADAPTIVE_XML = """<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
+"""
+
+BACKGROUND_COLOR = """<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#000000</color>
+</resources>
+"""
 
 PERMISSIONS = (
     '    <uses-permission android:name="android.permission.INTERNET" />\n'
@@ -140,12 +158,54 @@ def patch_signing() -> None:
     print("подпись: релиз подписывается нашим ключом")
 
 
+def install_icons() -> None:
+    """Кладёт иконку лончера в сгенерированный каркас.
+
+    flutter create создаёт mipmap-* со своей иконкой Flutter, поэтому файлы
+    перезаписываются на каждой сборке. Адаптивная иконка (Android 8+) берёт
+    чёрный фон из colors.xml и прозрачный передний слой из drawable-nodpi.
+    """
+    if not (ICONS / "ic_launcher-192.png").exists():
+        print("иконка: нет tools/icons, оставляю стандартную")
+        return
+
+    res = ROOT / "android/app/src/main/res"
+    for density, size in LEGACY_ICONS.items():
+        target = res / f"mipmap-{density}" / "ic_launcher.png"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ICONS / f"ic_launcher-{size}.png", target)
+
+    nodpi = res / "drawable-nodpi"
+    nodpi.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ICONS / "ic_launcher_foreground.png", nodpi / "ic_launcher_foreground.png")
+
+    anydpi = res / "mipmap-anydpi-v26"
+    anydpi.mkdir(parents=True, exist_ok=True)
+    (anydpi / "ic_launcher.xml").write_text(ADAPTIVE_XML, encoding="utf-8")
+
+    colors = res / "values" / "colors.xml"
+    colors.parent.mkdir(parents=True, exist_ok=True)
+    if not colors.exists():
+        colors.write_text(BACKGROUND_COLOR, encoding="utf-8")
+    else:
+        text = colors.read_text(encoding="utf-8")
+        if "ic_launcher_background" not in text:
+            text = text.replace(
+                "</resources>",
+                '    <color name="ic_launcher_background">#000000</color>\n</resources>',
+                1,
+            )
+            colors.write_text(text, encoding="utf-8")
+    print("иконка: лончер и адаптивный слой на месте")
+
+
 def main() -> None:
     if not MANIFEST.exists() or not GRADLE.exists():
         sys.exit("нет Android-каркаса: сначала должен пройти flutter create")
     patch_manifest()
     write_main_activity()
     patch_signing()
+    install_icons()
 
 
 if __name__ == "__main__":
